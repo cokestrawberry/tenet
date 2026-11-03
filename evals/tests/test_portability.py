@@ -40,7 +40,8 @@ class PortabilityTests(unittest.TestCase):
     def test_non_ascii_aggregate_mapping_and_outputs_are_utf8(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            aggregate = root / 'aggregate-result.json'
+            aggregate = root / 'input/aggregate-result.json'
+            aggregate.parent.mkdir()
             mapping = root / 'probe-case-map.json'
             case = '매핑 없는 사례 🧪'
             aggregate.write_bytes(json.dumps({'cases': [
