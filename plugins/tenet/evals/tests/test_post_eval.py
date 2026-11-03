@@ -159,6 +159,107 @@ class TraceTests(unittest.TestCase):
         events[3]['message']['content'][0]['is_error'] = False
         self.assertNotEqual(self.verify(events)['outcome'], 'PASS')
 
+    def test_narrow_balance_observation_preserves_genuine_red_green(self):
+        events = good_trace()
+        events[4]['message']['content'][0]['input']['content'] = (
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n'
+            '    def withdraw(self, amount):\n'
+            '        self.balance -= amount\n')
+        observation = tool('Bash', {
+            'command': 'python3 -B -c "import account; print(account.Account(5).balance)"'
+        }, '5\n')
+        events[6:6] = observation
+        result = self.verify(events)
+        self.assertEqual(result['outcome'], 'PASS')
+        self.assertEqual(result['uncertainties'], [])
+
+    def test_balance_observation_requires_pure_imported_constructor(self):
+        events = good_trace()
+        events[4]['message']['content'][0]['input']['content'] = (
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n'
+            '        open("/tmp/side-effect", "w")\n'
+            '    def withdraw(self, amount):\n'
+            '        self.balance -= amount\n')
+        events[6:6] = tool('Bash', {
+            'command': 'python3 -B -c "import account; print(account.Account(5).balance)"'
+        }, '5\n')
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_observation_does_not_allow_other_python_or_shell_commands(self):
+        source = (
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n')
+        for command in (
+            'python3 -B -c "import account; print(account.Account(5).balance); open(\'/tmp/x\', \'w\')"',
+            'python3 -B -c "import account; print(account.Account(5).balance)" ; touch account.py',
+            'python3 -B -c "import account; print(account.Account(5).balance)" | cat',
+            'python3 -c "import account; print(account.Account(5).balance)"',
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(verify_trace.proven_readonly_balance_probe(
+                    command, source, '5\n', False))
+
+    def test_confirmed_implementation_first_survives_later_unknown_command(self):
+        events = implementation() + test_edit()
+        events += tool('Bash', {'command': 'python3 -c "print(0)"'}, '0')
+        events += run_test(GREEN) + [terminal()]
+        result = self.verify(events)
+        self.assertEqual(result['outcome'], 'FAIL')
+        self.assertTrue(result['uncertainties'])
+
+    def test_earlier_unknown_command_prevents_definite_implementation_first_failure(self):
+        events = tool('Bash', {'command': 'python3 -c "print(0)"'}, '0')
+        events += implementation() + test_edit() + run_test(GREEN) + [terminal()]
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_variadic_annotations_are_not_readonly_at_definition_time(self):
+        constructor = (
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n')
+        command = 'python3 -B -c "import account; print(account.Account(5).balance)"'
+        for parameter in ('*args', '**kwargs'):
+            with self.subTest(parameter=parameter):
+                source = constructor + (
+                    '    def withdraw(self, amount, '
+                    + parameter + ': open("/tmp/side-effect", "w").write("changed")):\n'
+                    '        self.balance -= amount\n')
+                self.assertFalse(verify_trace.proven_readonly_balance_probe(
+                    command, source, '5\n', False))
+
+    def test_variadic_annotation_prevents_false_pass_for_full_trace(self):
+        events = good_trace()
+        events[4]['message']['content'][0]['input']['content'] = (
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n'
+            '    def withdraw(self, amount, *args: open("/tmp/side-effect", "w").write("changed")):\n'
+            '        self.balance -= amount\n')
+        events[6:6] = tool('Bash', {
+            'command': 'python3 -B -c "import account; print(account.Account(5).balance)"'
+        }, '5\n')
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_uncertain_command_overlapping_implementation_blocks_definite_fail(self):
+        unknown = tool('Bash', {'command': 'python3 -c "print(0)"'}, '0')
+        events = [unknown[0]] + implementation() + [unknown[1]]
+        events += test_edit() + run_test(GREEN) + [terminal()]
+        result = self.verify(events)
+        self.assertEqual(result['outcome'], 'INCONCLUSIVE')
+        self.assertEqual(result['uncertainties'][0]['call']['line'], 1)
+        self.assertEqual(result['uncertainties'][0]['event']['line'], 4)
+
+    def test_uncertain_tool_overlapping_implementation_blocks_definite_fail(self):
+        unknown = tool('UnrecognizedTool', {'command': 'potential red'}, 'done')
+        events = [unknown[0]] + implementation() + [unknown[1]]
+        events += test_edit() + run_test(GREEN) + [terminal()]
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
     def test_refactor_claim_is_separate_from_observed_execution(self):
         events = good_trace()
         events[-1] = terminal('The feature is finished.')

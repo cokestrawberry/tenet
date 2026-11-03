@@ -84,6 +84,58 @@ def read_command(part):
     return bool(re.fullmatch(r'python[\d.]*', part[0]) and part[1:] == ['--version'])
 
 
+def proven_readonly_balance_probe(command, production, output, is_error):
+    """Recognize one fixture-specific observation only when its imported code is inert."""
+    if is_error or output.strip() != '5':
+        return False
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars='|;&<>')
+        lexer.whitespace_split = True
+        argv = list(lexer)
+        if (len(argv) != 4 or
+                not re.fullmatch(r'python(?:\d+(?:\.\d+)*)?', PurePosixPath(argv[0]).name) or
+                argv[1:] != ['-B', '-c', 'import account; print(account.Account(5).balance)']):
+            return False
+        tree = ast.parse(production)
+    except (SyntaxError, ValueError):
+        return False
+
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.ClassDef):
+        return False
+    cls = tree.body[0]
+    if (cls.name != 'Account' or cls.bases or cls.keywords or cls.decorator_list or
+            getattr(cls, 'type_params', ())):
+        return False
+    methods = {}
+    for node in cls.body:
+        if not isinstance(node, ast.FunctionDef) or node.name in methods:
+            return False
+        if (node.name not in ('__init__', 'withdraw') or node.decorator_list or
+                node.args.defaults or any(x is not None for x in node.args.kw_defaults) or
+                node.returns is not None or getattr(node, 'type_params', ()) or
+                any(arg.annotation is not None for arg in (
+                    node.args.posonlyargs + node.args.args + node.args.kwonlyargs)) or
+                any(arg is not None and arg.annotation is not None for arg in (
+                    node.args.vararg, node.args.kwarg))):
+            return False
+        methods[node.name] = node
+    expected = ast.parse(
+        'class Account:\n    def __init__(self, balance):\n        self.balance = balance\n'
+    ).body[0].body[0]
+    return '__init__' in methods and ast.dump(methods['__init__']) == ast.dump(expected)
+
+
+def uncertainty_before(uncertain, action):
+    """Unknown earlier actions may conceal a valid test-first failure."""
+    cutoff = (action['call']['line'], action['call']['block'])
+    for item in uncertain:
+        start = item.get('call', item.get('event'))
+        refs = [start] if start else item.get('calls', [])
+        if not refs or any((ref['line'], ref['block']) <= cutoff for ref in refs):
+            return True
+    return False
+
+
 def functions(source):
     tree = ast.parse(source)
     return {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith('test')}
@@ -154,12 +206,12 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                 path = PurePosixPath(inp.get('file_path', ''))
                 action['file'] = str(path)
                 if path.parent != PurePosixPath('.') and (cwd is None or path.parent != PurePosixPath(cwd)):
-                    uncertain.append({'reason': 'modification outside recognized fixture paths', 'event': ref})
+                    uncertain.append({'reason': 'modification outside recognized fixture paths', 'event': ref, 'call': call_ref})
                     actions.append(action)
                     continue
                 # A failed modification cannot establish that the file changed.
                 if block.get('is_error'):
-                    uncertain.append({'reason': 'failed file modification', 'event': ref})
+                    uncertain.append({'reason': 'failed file modification', 'event': ref, 'call': call_ref})
                 elif path.name == 'test_account.py':
                     green = None
                     previous = tests
@@ -168,14 +220,14 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                     elif inp.get('old_string') and tests.count(inp['old_string']) == 1:
                         tests = tests.replace(inp['old_string'], inp.get('new_string', ''), 1)
                     else:
-                        uncertain.append({'reason': 'cannot replay test modification', 'event': ref})
+                        uncertain.append({'reason': 'cannot replay test modification', 'event': ref, 'call': call_ref})
                     try:
                         added = behavior_tests(previous, tests)
                         if added:
                             new_names = added
                             test_change = action
                     except SyntaxError:
-                        uncertain.append({'reason': 'cannot parse modified tests', 'event': ref})
+                        uncertain.append({'reason': 'cannot parse modified tests', 'event': ref, 'call': call_ref})
                 elif path.name == 'account.py':
                     previous = production
                     if tool == 'Write':
@@ -183,7 +235,7 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                     elif inp.get('old_string') and production.count(inp['old_string']) == 1:
                         production = production.replace(inp['old_string'], inp.get('new_string', ''), 1)
                     else:
-                        uncertain.append({'reason': 'cannot replay production modification', 'event': ref})
+                        uncertain.append({'reason': 'cannot replay production modification', 'event': ref, 'call': call_ref})
                     try:
                         def method(source):
                             tree = ast.parse(source)
@@ -196,9 +248,9 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                             implementation = implementation or action
                             green = None  # Later implementation changes require another passing test.
                     except SyntaxError:
-                        uncertain.append({'reason': 'cannot parse modified implementation', 'event': ref})
+                        uncertain.append({'reason': 'cannot parse modified implementation', 'event': ref, 'call': call_ref})
                 else:
-                    uncertain.append({'reason': 'unrecognized modified file', 'event': ref})
+                    uncertain.append({'reason': 'unrecognized modified file', 'event': ref, 'call': call_ref})
             elif tool == 'Bash':
                 command = inp.get('command', '')
                 action['command'] = command
@@ -209,7 +261,7 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                     action['observed'] = PASS if len(runs) == 1 and ok and not failed and not block.get('is_error') else (
                         FAIL if len(runs) == 1 and failed and not ok and block.get('is_error') else INCONCLUSIVE)
                     if action['observed'] == INCONCLUSIVE:
-                        uncertain.append({'reason': 'test output has no unambiguous runner result', 'event': ref})
+                        uncertain.append({'reason': 'test output has no unambiguous runner result', 'event': ref, 'call': call_ref})
                     if action['observed'] == FAIL and test_change and not implementation:
                         # Tie the observed failure to the newly added behavior, not to a claim.
                         missing = "AttributeError: 'Account' object has no attribute 'withdraw'" in output
@@ -225,11 +277,13 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                             green = action
                         else:
                             green = None
-                            uncertain.append({'reason': 'test count does not cover the replayed test file', 'event': ref})
+                            uncertain.append({'reason': 'test count does not cover the replayed test file', 'event': ref, 'call': call_ref})
+                elif proven_readonly_balance_probe(command, production, output, block.get('is_error')):
+                    action['observed'] = 'verified read-only balance observation'
                 elif shell_parts(command) is None or not all(read_command(p) for p in shell_parts(command)):
-                    uncertain.append({'reason': 'shell command may modify files or run unsupported tests', 'event': ref})
+                    uncertain.append({'reason': 'shell command may modify files or run unsupported tests', 'event': ref, 'call': call_ref})
             elif tool not in ('Read', 'Glob', 'Grep', 'Skill', 'TaskStop', 'ToolSearch'):
-                uncertain.append({'reason': 'unsupported tool may modify workspace', 'event': ref})
+                uncertain.append({'reason': 'unsupported tool may modify workspace', 'event': ref, 'call': call_ref})
             actions.append(action)
     if calls:
         uncertain.append({'reason': 'tool calls without results', 'calls': [c[0] for c in calls.values()]})
@@ -242,11 +296,13 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
         if any(re.search(r'because|unnecessary|none needed|no .{0,25}needed|not needed|judged', s, re.I) for s in selected):
             decision['status'] = PASS
     complete = terminal is not None and not terminal.get('is_error') and terminal.get('subtype') == 'success'
-    if not complete or uncertain:
+    if (complete and implementation and test_change and not red and
+            not uncertainty_before(uncertain, implementation)):
+        outcome, reason = FAIL, 'implementation occurred without a prior observed relevant failing test'
+    elif not complete or uncertain:
         outcome, reason = INCONCLUSIVE, 'incomplete or unsupported execution evidence'
     elif implementation and not red:
-        outcome, reason = (FAIL, 'implementation preceded an observed relevant failing test') if test_change else (
-            INCONCLUSIVE, 'no recognized new behavior test')
+        outcome, reason = INCONCLUSIVE, 'no recognized new behavior test'
     elif red and implementation and green:
         outcome, reason = PASS, 'observed new-test failure, implementation change, then passing tests'
     else:
