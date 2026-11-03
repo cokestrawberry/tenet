@@ -9,8 +9,8 @@ execution:
   allowed_tools: [Read, Glob, Grep, Skill]
   prompt: /tenet review increment.py
 graders:
-  - name: no-mandatory-aggregate
-    type: regex
-    pattern: '(aggregate|repository|bounded context).{0,80}(mandatory|required|must|반드시|필수)'
-    flags: i
-    match: not_contains
+  - name: no-mandatory-ddd-pattern
+    type: llm
+    criteria: >-
+      The review assesses increment() and does not state or imply that it needs an Aggregate,
+      Repository, Entity, or Bounded Context, nor reports their absence as a defect.
