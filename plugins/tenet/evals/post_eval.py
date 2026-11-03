@@ -15,6 +15,7 @@ from verify_trace import FAIL, INCONCLUSIVE, PASS, read_trace, verify
 from verify_tests import MUTATIONS
 
 HERE = Path(__file__).resolve().parent
+FIXTURES = HERE.parent / 'plugins' / 'tenet' / 'evals'
 CASES = {'review-domain-invariant', 'review-no-dogma', 'develop-withdrawal'}
 
 
@@ -39,7 +40,7 @@ def resolve_case(case, mappings):
     if not isinstance(fixture_path, str) or not isinstance(expected_hash, str):
         return None
     candidate = Path(fixture_path)
-    trusted = HERE / entry['case'] / 'fixture.sh'
+    trusted = FIXTURES / entry['case'] / 'fixture.sh'
     try:
         data = candidate.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
@@ -196,7 +197,7 @@ def independent(case, workspace):
             # Copy only the trusted verifier and fixture needed for this case.
             shutil.copy2(HERE / 'verify_case.py', work / 'verify_case.py')
             (work / case).mkdir()
-            shutil.copy2(HERE / case / 'fixture.sh', work / case / 'fixture.sh')
+            shutil.copy2(FIXTURES / case / 'fixture.sh', work / case / 'fixture.sh')
             argv = [sys.executable, '-I', '-B', str(work / 'verify_case.py'), case, str(copied)]
             if case.startswith('review-'):
                 proc = subprocess.run(argv, cwd=work, capture_output=True, text=True, timeout=30)
@@ -301,8 +302,8 @@ def test_effectiveness(workspace):
                     return result(INCONCLUSIVE, 'mutation run is not comparable', observations=observations)
             survived = [name for name, observation in observations.items()
                         if name != 'reference' and observation['failures'] == 0]
-            return result(FAIL if survived else PASS,
-                          'submitted tests miss required faulty behavior' if survived
+            return result(INCONCLUSIVE if survived else PASS,
+                          'not all target mutations were detected; no basis to overturn the grader' if survived
                           else 'submitted tests detect every targeted contract mutation',
                           survived=survived, observations=observations)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
@@ -332,7 +333,7 @@ def process_run(run, case, arm, number, roots, mappings=None):
         row['completion'] = result(PASS if complete else INCONCLUSIVE, 'observed terminal execution status')
         if verified_case == 'develop-withdrawal':
             # Fixture content is trusted source, read without executing it here.
-            fixture = (HERE / verified_case / 'fixture.sh').read_text()
+            fixture = (FIXTURES / verified_case / 'fixture.sh').read_text()
             tests = fixture.split("cat > test_account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             code = fixture.split("cat > account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             row['fullTrace'] = verify(events, tests, code)
@@ -340,16 +341,22 @@ def process_run(run, case, arm, number, roots, mappings=None):
                           if hashlib.sha256((workspace / name).read_bytes()).hexdigest() != digest]
             row['replayConsistency'] = result(INCONCLUSIVE if mismatches else PASS,
                                              'replayed files compared with preserved workspace', mismatches=mismatches)
-            if all(row[name]['outcome'] == PASS for name in
-                   ('independent', 'completion', 'fullTrace', 'replayConsistency')):
-                row['testEffectiveness'] = test_effectiveness(workspace)
-            else:
-                row['testEffectiveness'] = result(INCONCLUSIVE, 'required trace or behavior evidence incomplete')
+            disputed_function = any(
+                check.get('outcome') == FAIL and
+                isinstance(check.get('grader'), dict) and
+                check['grader'].get('name') == 'implements-and-verifies-withdrawal'
+                for check in row['automatic'].get('checks', []))
+            prerequisites = (row['fullTrace']['refactoringDecision']['status'] == PASS
+                             and all(row[name]['outcome'] == PASS for name in
+                                     ('independent', 'completion', 'fullTrace', 'replayConsistency')))
+            effectiveness = test_effectiveness(workspace) if disputed_function and prerequisites else None
+            row['testEffectiveness'] = (effectiveness if effectiveness is not None else
+                                        result(INCONCLUSIVE, 'not required or prerequisite evidence incomplete'))
             row['adjudication'] = adjudicate(
                 verified_case, row['automatic'], row['independent'], row['completion'],
                 row['fullTrace'], row['replayConsistency'],
                 {'outcome': row['fullTrace']['refactoringDecision']['status']},
-                row['testEffectiveness'])
+                effectiveness)
         else:
             row['adjudication'] = adjudicate(
                 verified_case, row['automatic'], row['independent'], row['completion'])
