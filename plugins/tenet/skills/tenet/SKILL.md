@@ -10,6 +10,8 @@ disable-model-invocation: true
 Use the same engineering principles for building software and assessing existing software.
 The principles concern observable behavior, domain correctness, and maintainable design.
 They are context-sensitive defaults, not mandatory frameworks or numerical quality gates.
+A domain is the problem area the software serves; an invariant is a rule that must always hold.
+A bounded context is a boundary within which domain terms have consistent meanings.
 
 ## Select the operation
 
@@ -114,12 +116,12 @@ separately authorizes such changes.
 - Distinguish a failing test, an absent test, and an unexecuted test.
 - Assess a design in its actual context. A simple function can be better than an aggregate.
 - An architectural preference is not automatically a defect.
-- Use existing project tooling where practical. Do not require crapper, dryer, mutator,
-  uml-viewer, or another external checkout for ordinary use.
+- Use existing project tooling where practical. Code complexity, coverage, duplication,
+  mutation testing, and architecture diagrams are optional evidence, not mandatory tools.
+- Do not require any separate repository checkout or proprietary utility for ordinary use.
 - The user's requested scope takes priority over unrelated cleanup or speculative redesign.
 
-## Origin
+## Attribution
 
-Tenet's approach was informed by
-[ub-mode](https://github.com/unclebob/ub-mode), DDD, and TDD.
-It uses its own task guidance and does not execute the original companion tools.
+Tenet's engineering guidance draws on domain-driven design, test-driven development,
+and earlier software engineering guidance. See the bundled third-party notices for attribution.
