@@ -250,6 +250,103 @@ class WorkflowTests(unittest.TestCase):
             rows = json.loads((root / 'output/verification.json').read_text())['runs']
             self.assertEqual([(r['arm'], r['run']) for r in rows], [('with', 1), ('with', 2), ('without', 1)])
 
+    def test_probe_mapping_requires_matching_fixture_provenance(self):
+        import hashlib
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / 'fixture.sh'
+            shutil.copy2(post_eval.HERE / 'develop-withdrawal/fixture.sh', fixture)
+            digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
+            mappings = {'probe-dev-long-honest-red': {
+                'case': 'develop-withdrawal', 'fixturePath': str(fixture),
+                'fixtureSha256': digest}}
+            self.assertEqual(post_eval.resolve_case('probe-dev-long-honest-red', mappings),
+                             'develop-withdrawal')
+            fixture.write_text('different fixture')
+            self.assertIsNone(post_eval.resolve_case('probe-dev-long-honest-red', mappings))
+            self.assertIsNone(post_eval.resolve_case('probe-unknown', mappings))
+
+    def test_adjudication_does_not_turn_llm_failure_into_unverified_pass(self):
+        passed = post_eval.result('PASS', 'observed')
+        unknown = post_eval.result('INCONCLUSIVE', 'unsupported command')
+        raw = post_eval.result('FAIL', 'llm failure', checks=[
+            post_eval.result('FAIL', 'function', grader={'name': 'implements-and-verifies-withdrawal'}),
+            post_eval.result('FAIL', 'process', grader={'name': 'demonstrates-test-first-development'})])
+        actual = post_eval.adjudicate('develop-withdrawal', raw, passed, passed, unknown, passed, passed)
+        self.assertEqual(actual['outcome'], 'INCONCLUSIVE')
+        self.assertEqual(raw['outcome'], 'FAIL')
+
+    def test_adjudication_can_correct_process_only_false_failure(self):
+        passed = post_eval.result('PASS', 'observed')
+        raw = post_eval.result('FAIL', 'llm failure', checks=[
+            post_eval.result('PASS', 'function', grader={'name': 'implements-and-verifies-withdrawal'}),
+            post_eval.result('FAIL', 'process', grader={'name': 'demonstrates-test-first-development'})])
+        actual = post_eval.adjudicate('develop-withdrawal', raw, passed, passed, passed, passed, passed)
+        self.assertEqual(actual['outcome'], 'PASS')
+        self.assertEqual(actual['overriddenGrader'], 'demonstrates-test-first-development')
+        self.assertEqual(raw['outcome'], 'FAIL')
+
+    def test_missing_grader_name_never_authorizes_override(self):
+        passed = post_eval.result('PASS', 'observed')
+        raw = post_eval.result('FAIL', 'llm failure', checks=[
+            post_eval.result('PASS', 'function', grader={}),
+            post_eval.result('FAIL', 'process', grader={})])
+        actual = post_eval.adjudicate('develop-withdrawal', raw, passed, passed,
+                                      passed, passed, passed)
+        self.assertEqual(actual['outcome'], 'INCONCLUSIVE')
+        for missing in (0, 1):
+            graders = [
+                {'name': 'implements-and-verifies-withdrawal'},
+                {'name': 'demonstrates-test-first-development'}]
+            del graders[missing]['name']
+            raw['checks'][0]['grader'] = graders[0]
+            raw['checks'][1]['grader'] = graders[1]
+            self.assertEqual(post_eval.adjudicate(
+                'develop-withdrawal', raw, passed, passed,
+                passed, passed, passed)['outcome'], 'INCONCLUSIVE')
+
+    def test_evidence_read_error_preserves_already_verified_trace_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / 'trace.jsonl'
+            trace.write_text(json.dumps({
+                'type': 'result', 'subtype': 'success', 'is_error': False}) + '\n')
+            workspace = root / 'workspace'
+            workspace.mkdir()
+            passed = post_eval.result('PASS', 'checked')
+            failed_trace = {'outcome': 'FAIL', 'replayedSha256': {'account.py': 'invalid'},
+                            'refactoringDecision': {'status': 'INCONCLUSIVE'}}
+            run = {'tracePath': str(trace), 'graders': [{'passed': True}]}
+            with patch.object(post_eval, 'resolve_run', return_value=(trace, workspace)), \
+                 patch.object(post_eval, 'independent', return_value=passed), \
+                 patch.object(post_eval, 'verify', return_value=failed_trace):
+                actual = post_eval.process_run(run, 'develop-withdrawal', 'with', 1, [])
+            self.assertEqual(actual['fullTrace']['outcome'], 'FAIL')
+            self.assertEqual(actual['outcome'], 'FAIL')
+            self.assertIn('evidenceError', actual)
+
+    def test_adjudication_never_overrides_independent_or_trace_failure(self):
+        passed = post_eval.result('PASS', 'observed')
+        failed = post_eval.result('FAIL', 'confirmed')
+        llm = post_eval.result('PASS', 'llm')
+        for independent, trace in ((failed, passed), (passed, failed)):
+            with self.subTest(independent=independent, trace=trace):
+                actual = post_eval.adjudicate('develop-withdrawal', llm, independent,
+                                              passed, trace, passed, passed)
+                self.assertEqual(actual['outcome'], 'FAIL')
+
+    def test_review_llm_failure_is_not_overridden_by_file_integrity(self):
+        passed = post_eval.result('PASS', 'files intact')
+        failed = post_eval.result('FAIL', 'unsupported review')
+        actual = post_eval.adjudicate('review-no-dogma', failed, passed, passed)
+        self.assertEqual(actual['outcome'], 'FAIL')
+
+    def test_probe_without_mapping_is_inconclusive_even_with_llm_pass(self):
+        run = {'graders': [{'passed': True}]}
+        actual = post_eval.process_run(run, 'probe-dev-long-honest-red', 'with', 1, [])
+        self.assertEqual(actual['outcome'], 'INCONCLUSIVE')
+        self.assertIsNone(actual['verifiedCase'])
+
     def test_cli_refuses_to_write_inside_original_trace_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
