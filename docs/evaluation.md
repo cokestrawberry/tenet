@@ -17,7 +17,7 @@
 저장소 루트에서 Claude Code Plugin Eval을 지원하는 버전으로 실행합니다.
 
 ```bash
-claude plugin eval plugins/tenet --scaffold --no-publish
+claude plugin eval plugins/tenet --scaffold --allow-tools Bash Write Edit --no-publish
 ```
 
 이 명령은 모델 호출 비용이 발생할 수 있습니다. 도구 권한과 샌드박스 실행 가능
@@ -25,7 +25,7 @@ claude plugin eval plugins/tenet --scaffold --no-publish
 
 ## 평가 범위와 한계
 
-- 정규식 검사는 핵심 단어와 파일의 존재 여부만 확인하는 부분 검증입니다.
+- LLM grader는 응답의 의미와 지적의 타당성을 평가하며, 정규식 검사는 파일의 존재 여부만 확인하는 부분 검증입니다.
 - 테스트가 실제로 Red-Green-Refactor 순서로 작성되었는지는 결과 파일만으로 알 수 없습니다.
 - 실행 로그, 테스트 결과, 불필요한 변경 여부를 함께 검토해야 합니다.
 - 원칙 준수 여부의 평가에서는 테스트 기준이 모델의 표현 방식에 과적합되지 않도록 주의합니다.
