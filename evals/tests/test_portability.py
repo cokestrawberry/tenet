@@ -2,6 +2,7 @@
 from contextlib import redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -102,6 +103,46 @@ class PortabilityTests(unittest.TestCase):
             changed = subprocess.run(command, capture_output=True, text=True,
                                      encoding='utf-8', timeout=30)
             self.assertEqual(changed.returncode, 1, changed.stdout + changed.stderr)
+
+
+    def test_unicode_filename_uses_utf8_in_independent_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            fixture = post_eval.FIXTURES / 'review-no-dogma/fixture.sh'
+            for name, data in verify_case.fixture_files(fixture).items():
+                (workspace / name).write_bytes(data)
+            (workspace / '🧪.txt').write_text('changed', encoding='utf-8')
+            verdict = post_eval.independent('review-no-dogma', workspace)
+            self.assertEqual(verdict['outcome'], 'FAIL', verdict)
+            self.assertIn('🧪.txt', verdict['output'])
+            self.assertNotIn('Traceback', verdict['output'])
+
+    def test_standalone_review_verifier_emits_utf8_with_utf8_mode_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            fixture = post_eval.FIXTURES / 'review-no-dogma/fixture.sh'
+            for name, data in verify_case.fixture_files(fixture).items():
+                (workspace / name).write_bytes(data)
+            (workspace / '🧪.txt').write_text('changed', encoding='utf-8')
+            env = dict(os.environ, PYTHONUTF8='0')
+            command = [sys.executable, '-I', '-B', str(post_eval.HERE / 'verify_case.py'),
+                       'review-no-dogma', str(workspace)]
+            actual = subprocess.run(command, capture_output=True, text=True,
+                                    encoding='utf-8', env=env, timeout=30)
+            self.assertEqual(actual.returncode, 1, actual.stdout + actual.stderr)
+            self.assertIn('🧪.txt', actual.stdout)
+            self.assertNotIn('UnicodeEncodeError', actual.stderr)
+
+    def test_review_traceback_cannot_be_misclassified_as_verified_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            fixture = post_eval.FIXTURES / 'review-no-dogma/fixture.sh'
+            for name, data in verify_case.fixture_files(fixture).items():
+                (workspace / name).write_bytes(data)
+            fake = subprocess.CompletedProcess([], 1, '', 'Traceback: FAIL: review changed workspace')
+            with patch.object(post_eval.subprocess, 'run', return_value=fake):
+                verdict = post_eval.independent('review-no-dogma', workspace)
+            self.assertEqual(verdict['outcome'], 'INCONCLUSIVE', verdict)
 
 
 if __name__ == '__main__':
