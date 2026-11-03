@@ -2,9 +2,6 @@ name: Pre-commit
 
 on:
   pull_request:
-    branches:
-      - main
-      - 'stage/**'
 
 permissions:
   contents: read
