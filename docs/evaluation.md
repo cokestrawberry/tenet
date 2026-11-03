@@ -211,8 +211,10 @@ python3 -B evals/post_eval.py \
 ```
 
 `automatic`은 원래 LLM 채점 결과로 보존되고 `adjudication`에 별도 판단 근거가 남습니다.
-기능 및 과정 Grader의 이름이 명시적으로 확인되고 전체 Trace·독립 행동 검사·
-실행 완료·파일 재현·리팩터링 보고가 모두 통과해야 LLM 실패 교정을 검토합니다.
+기능 및 과정 Grader의 이름이 명시적으로 확인되고 두 채점 모두 명확히 `PASS` 또는
+`FAIL`로 완료되었으며, 전체 Trace·독립 행동 검사·실행 완료·파일 재현·리팩터링
+보고가 모두 통과해야 LLM 실패 교정을 검토합니다. 채점 오류나 결과 누락으로
+어느 한쪽이라도 `INCONCLUSIVE`이면 독립 증거가 충분해도 자동 `PASS`로 교정하지 않습니다.
 기능 Grader가 PASS이면 과정 Grader의 잘못된 FAIL을 전체 Trace 근거로 교정할 수 있습니다.
 
 독립 증거가 모두 완전하고 기능 Grader가 FAIL인 경우에만, 제출한 `test_account.py`의 **테스트 효과 검사**
