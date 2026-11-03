@@ -87,4 +87,4 @@ DDD·TDD 관점으로 재구성합니다. 원본 도구인 crapper, dryer, mutat
 실행 의존성으로 포함하지 않습니다.
 
 Tenet 자체는 [MIT](LICENSE) 라이선스로 제공됩니다.
-참고한 원본의 저작권·라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 확인하십시오.
+참고한 원본의 저작권·라이선스는 [THIRD_PARTY_NOTICES.md](plugins/tenet/THIRD_PARTY_NOTICES.md)를 확인하십시오.
