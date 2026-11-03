@@ -22,10 +22,10 @@ Claude Code 2.1.310에서 확인한 `plugin eval` 명령 옵션을 사용합니�
 ### 읽기 전용 검토 사례
 
 ```bash
-CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \\
-  --case 'review-*' --scaffold --no-publish --trust-plugin \\
-  --model claude-opus-5-5 --judge-model haiku --runs 3 \\
-  --ablation with-without --keep-temp \\
+CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \
+  --case 'review-*' --scaffold --no-publish --trust-plugin \
+  --model claude-opus-5-5 --judge-model haiku --runs 3 \
+  --ablation with-without --keep-temp \
   --output-dir "$PWD/../tenet-eval-results/review"
 ```
 
@@ -35,10 +35,10 @@ CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \\
 ### 개발 사례
 
 ```bash
-CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \\
-  --case develop-withdrawal --scaffold --allow-tools Bash Write Edit \\
-  --no-publish --trust-plugin --model claude-opus-5-5 \\
-  --judge-model haiku --runs 3 --ablation with-without \\
+CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \
+  --case develop-withdrawal --scaffold --allow-tools Bash Write Edit \
+  --no-publish --trust-plugin --model claude-opus-5-5 \
+  --judge-model haiku --runs 3 --ablation with-without \
   --keep-temp --output-dir "$PWD/../tenet-eval-results/develop"
 ```
 
@@ -53,7 +53,16 @@ CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \\
 ## 결과의 독립 검증
 
 실제 결과 디렉터리에서 각 회차의 작업 공간과 trace를 찾아 검사합니다.
-작업 공간 경로는 실행 옵션 및 CLI 버전에 따라 달라질 수 있으므로 **추정하지 않습니다**.
+Claude Code 2.1.310의 `--keep-temp` 결과에서는 회차별 `sealed/home/cwd`에
+작업 공간이 보관될 수 있습니다. 실제 경로는 CLI 출력과 결과 메타데이터로 확인합니다.
+보존 디렉터리는 접근을 제한할 수 있으므로 CLI가 안내한 **해당 평가 디렉터리만**
+`chmod 700`으로 열고, 원본 권한과 경로를 먼저 기록합니다.
+읽을 수 없는 경로를 찾지 못한 경로와 혼동하지 않습니다.
+
+평가 에이전트가 생성한 코드는 신뢰할 수 없습니다. 개발 사례의 독립 검증은
+에이전트가 작성한 `account.py`를 실제로 실행하므로 **호스트에서 바로 실행하지 않고**,
+네트워크와 외부 자원 접근을 차단한 별도 격리 환경에서 수행합니다.
+해당 격리를 마련할 수 없다면 실행 검증을 생략하고 `판단 불가`로 기록합니다.
 
 검토 사례는 fixture 밖의 새 파일이나 기존 파일 변경이 없는지 확인합니다.
 Python의 `__pycache__` 같은 생성 파일도 읽기 전용 위반으로 취급합니다.
@@ -72,8 +81,14 @@ python3 plugins/tenet/evals/verify_case.py review-no-dogma /path/to/eval/workspa
 
 검증 도구는 **이미 보존된 작업 공간에만** 적용합니다. 단일 평가의 자동 grader에
 추가 연결된 것은 아니므로, 모든 회차에 실행하고 결과를 별도로 기록해야 합니다.
-Trace 기반 LLM grader는 Red→Green의 실제 순서와 리팩터링 판단을 검토합니다.
-하지만 모델 판정은 오류를 낼 수 있으므로 테스트 실행 로그와 대조해야 합니다.
+Trace 기반 LLM grader는 Red→Green의 실제 순서와 리팩터링 판단을 평가하려고
+시도하지만, Claude Code 2.1.310에서 trace가 24개 메시지를 넘으면 **처음 12개와
+마지막 12개만** 채점 입력에 포함되고 중간은 생략될 수 있습니다.
+따라서 각 회차의 결과 JSON에서 `trace_path`를 찾아 전체 `trace.jsonl`을 별도로
+검토하고, 테스트 추가·기대한 실패 실행·구현 변경·최종 통과 실행의 순서와 출력을 확인합니다.
+24개 메시지를 초과해 필요한 근거가 채점 입력에서 누락될 수 있는 회차는 두 trace 기반
+grader의 판정을 **단독 증거로 인정하지 않고 `판단 불가`**로 표시합니다.
+전체 trace에 근거한 별도의 검증 결과와 grader 결과를 구분해 기록합니다.
 실제 파일 변경 여부는 trace만으로 보증하지 않고 독립 검증 결과를 우선합니다.
 
 ## 현재 한계 및 추가 평가 대상
