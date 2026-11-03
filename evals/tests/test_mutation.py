@@ -109,6 +109,29 @@ class MutationTests(unittest.TestCase):
         self.assertEqual(adjudicate(failed)['outcome'], 'FAIL')
         self.assertEqual(raw['outcome'], 'FAIL')
 
+    def test_mutation_only_runs_for_disputed_functional_grader(self):
+        names = ('implements-and-verifies-withdrawal', 'demonstrates-test-first-development')
+        passed = post_eval.result('PASS', 'independently verified')
+        full_trace = {'outcome': 'PASS', 'replayedSha256': {},
+                      'refactoringDecision': {'status': 'PASS'}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / 'trace.jsonl'
+            trace.write_text(json.dumps({'type': 'result', 'subtype': 'success',
+                                         'is_error': False}) + '\n')
+            for functional_passed in (True, False):
+                with self.subTest(functional_passed=functional_passed):
+                    run = {'tracePath': str(trace), 'graders': [
+                        {'name': names[0], 'passed': functional_passed},
+                        {'name': names[1], 'passed': True}]}
+                    with patch.object(post_eval, 'resolve_run', return_value=(trace, root)), \
+                         patch.object(post_eval, 'independent', return_value=passed), \
+                         patch.object(post_eval, 'verify', return_value=full_trace), \
+                         patch.object(post_eval, 'test_effectiveness', return_value=passed) as mutation:
+                        row = post_eval.process_run(run, 'develop-withdrawal', 'with', 1, [])
+                    self.assertEqual(row['outcome'], 'PASS')
+                    self.assertEqual(mutation.call_count, 0 if functional_passed else 1)
+
     def test_missing_grader_identity_cannot_be_overridden(self):
         passed = post_eval.result('PASS', 'verified')
         raw = post_eval.result('FAIL', 'LLM failure', checks=[
