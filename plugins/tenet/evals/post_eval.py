@@ -25,6 +25,64 @@ def combine(checks):
     return FAIL if FAIL in outcomes else INCONCLUSIVE if INCONCLUSIVE in outcomes else PASS
 
 
+def resolve_case(case, mappings):
+    """Map a probe only when its fixture matches the trusted source fixture."""
+    if case in CASES:
+        return case
+    entry = mappings.get(case)
+    if not isinstance(entry, dict) or entry.get('case') not in CASES:
+        return None
+    fixture_path = entry.get('fixturePath')
+    expected_hash = entry.get('fixtureSha256')
+    if not isinstance(fixture_path, str) or not isinstance(expected_hash, str):
+        return None
+    candidate = Path(fixture_path)
+    trusted = HERE / entry['case'] / 'fixture.sh'
+    try:
+        data = candidate.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest == expected_hash and data == trusted.read_bytes():
+            return entry['case']
+    except OSError:
+        pass
+    return None
+
+
+def adjudicate(case, automatic_result, independent_result, completion, full_trace=None,
+               consistency=None, refactoring=None):
+    """Retain raw grader evidence and only replace judgments with adequate proof."""
+    verified = [independent_result, completion]
+    if full_trace is not None:
+        verified.extend([full_trace, consistency, refactoring])
+    if any(item['outcome'] == FAIL for item in verified):
+        return result(FAIL, 'independent verification established a failure')
+    if any(item['outcome'] == INCONCLUSIVE for item in verified):
+        if automatic_result['outcome'] == FAIL and case == 'develop-withdrawal':
+            return result(INCONCLUSIVE, 'LLM failure is not independently established; evidence incomplete')
+        return result(combine([automatic_result, *verified]), 'verification incomplete')
+
+    if automatic_result['outcome'] != FAIL:
+        return result(automatic_result['outcome'], 'automatic and independent verification combined')
+
+    if case != 'develop-withdrawal':
+        return result(FAIL, 'review criteria are not established by workspace integrity alone')
+
+    graders = automatic_result.get('checks', [])
+    if len(graders) != 2:
+        return result(INCONCLUSIVE, 'grader identity cannot be established')
+    names = ['implements-and-verifies-withdrawal', 'demonstrates-test-first-development']
+    verdicts = []
+    for index, check in enumerate(graders):
+        grader = check.get('grader', {})
+        if grader.get('name', names[index]) != names[index]:
+            return result(INCONCLUSIVE, 'unexpected grader identity')
+        verdicts.append(check['outcome'])
+    if verdicts[0] == PASS and verdicts[1] == FAIL:
+        return result(PASS, 'full-trace and independent checks establish test-first behavior',
+                      overriddenGrader=names[1])
+    return result(INCONCLUSIVE, 'LLM functional failure conflicts with independent evidence')
+
+
 def plain_files(root):
     """Reject symlinks and surface inaccessible entries instead of skipping them."""
     if root.is_symlink():
@@ -164,28 +222,30 @@ for check in checks:
         return result(INCONCLUSIVE, 'workspace inaccessible, unsupported, or verifier unavailable', error=str(error))
 
 
-def process_run(run, case, arm, number, roots):
+def process_run(run, case, arm, number, roots, mappings=None):
     if not isinstance(run, dict):
         return {'case': case, 'arm': arm, 'run': number, 'outcome': INCONCLUSIVE,
                 'evidenceError': result(INCONCLUSIVE, 'malformed run record')}
     row = {'case': case, 'arm': arm, 'run': number, 'automatic': automatic(run)}
-    if case not in CASES:
-        row['independent'] = result(INCONCLUSIVE, 'unsupported case')
-        row['outcome'] = combine([row['automatic'], row['independent']])
+    verified_case = resolve_case(case, mappings or {})
+    row['verifiedCase'] = verified_case
+    if verified_case is None:
+        row['independent'] = result(INCONCLUSIVE, 'unsupported case or unverified fixture provenance')
+        row['outcome'] = INCONCLUSIVE
         return row
     try:
         trace, workspace = resolve_run(run, case, arm, number, roots)
         row.update(trace=str(trace), workspace=str(workspace))
-        row['independent'] = independent(case, workspace)
+        row['independent'] = independent(verified_case, workspace)
         events = read_trace(trace)
         row['traceSha256'] = hashlib.sha256(trace.read_bytes()).hexdigest()
         row['eventCount'] = len(events)
         terminals = [e for e in events if e.get('type') == 'result']
         complete = len(terminals) == 1 and terminals[0].get('subtype') == 'success' and not terminals[0].get('is_error')
         row['completion'] = result(PASS if complete else INCONCLUSIVE, 'observed terminal execution status')
-        if case == 'develop-withdrawal':
+        if verified_case == 'develop-withdrawal':
             # Fixture content is trusted source, read without executing it here.
-            fixture = (HERE / case / 'fixture.sh').read_text()
+            fixture = (HERE / verified_case / 'fixture.sh').read_text()
             tests = fixture.split("cat > test_account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             code = fixture.split("cat > account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             row['fullTrace'] = verify(events, tests, code)
@@ -193,20 +253,25 @@ def process_run(run, case, arm, number, roots):
                           if hashlib.sha256((workspace / name).read_bytes()).hexdigest() != digest]
             row['replayConsistency'] = result(INCONCLUSIVE if mismatches else PASS,
                                              'replayed files compared with preserved workspace', mismatches=mismatches)
-            checks = [row['automatic'], row['independent'], row['completion'], row['fullTrace'],
-                      row['replayConsistency'], {'outcome': row['fullTrace']['refactoringDecision']['status']}]
+            row['adjudication'] = adjudicate(
+                verified_case, row['automatic'], row['independent'], row['completion'],
+                row['fullTrace'], row['replayConsistency'],
+                {'outcome': row['fullTrace']['refactoringDecision']['status']})
         else:
-            checks = [row['automatic'], row['independent'], row['completion']]
-        row['outcome'] = combine(checks)
+            row['adjudication'] = adjudicate(
+                verified_case, row['automatic'], row['independent'], row['completion'])
+        row['outcome'] = row['adjudication']['outcome']
     except (OSError, ValueError, KeyError, IndexError, TypeError, SyntaxError) as error:
         row['evidenceError'] = result(INCONCLUSIVE, 'missing, restricted, or malformed evidence', error=str(error))
-        row['outcome'] = combine([row['automatic'], row.get('independent', row['evidenceError']), row['evidenceError']])
+        checks = [row.get('independent', row['evidenceError']), row['evidenceError']]
+        row['outcome'] = FAIL if any(c['outcome'] == FAIL for c in checks) else INCONCLUSIVE
     return row
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--aggregate', type=Path, action='append', required=True)
+    parser.add_argument('--case-map', type=Path, help='JSON mapping probe names to verified fixture provenance')
     parser.add_argument('--run-root', type=Path, action='append', default=[],
                         help='Preserved root containing <case>/<arm>-<n> with matching source.json or kept-source.txt')
     parser.add_argument('--output', type=Path, required=True, help='New output directory; existing evidence is never replaced')
@@ -214,6 +279,14 @@ def main():
     output = args.output.resolve()
     protected = [p.resolve() for p in args.run_root] + [p.resolve().parent for p in args.aggregate]
     loaded, errors = [], []
+    mappings = {}
+    if args.case_map:
+        try:
+            mappings = json.loads(args.case_map.read_text())
+            if not isinstance(mappings, dict):
+                raise ValueError('case mapping must be a JSON object')
+        except (OSError, ValueError) as error:
+            parser.error('invalid case mapping: ' + str(error))
     for aggregate in args.aggregate:
         try:
             data = json.loads(aggregate.read_text())
@@ -245,7 +318,7 @@ def main():
                     errors.append({'aggregate': str(aggregate), 'case': case['name'], 'arm': arm, 'error': 'missing run array'})
                     continue
                 for number, run in enumerate(runs, 1):
-                    row = process_run(run, case['name'], arm, number, args.run_root)
+                    row = process_run(run, case['name'], arm, number, args.run_root, mappings)
                     row['aggregate'] = str(aggregate)
                     rows.append(row)
     counts = {outcome: sum(r['outcome'] == outcome for r in rows) for outcome in (PASS, FAIL, INCONCLUSIVE)}
