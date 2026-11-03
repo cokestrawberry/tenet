@@ -122,9 +122,9 @@ def resolve_run(run, case, arm, number, roots):
         source = candidate / 'source.json'
         kept = candidate / 'kept-source.txt'
         if source.is_file():
-            origin = json.loads(source.read_text())['source']
+            origin = json.loads(source.read_text(encoding='utf-8'))['source']
         elif kept.is_file():
-            origin = kept.read_text().strip()
+            origin = kept.read_text(encoding='utf-8').strip()
         else:
             continue
         if Path(origin) != original.parent.parent:
@@ -169,7 +169,7 @@ def sandbox_command(work, argv):
     profile.write_text('(version 1)\n(allow default)\n(deny network*)\n'
                        '(deny file-read* (subpath "/Users"))\n(deny file-write*)\n'
                        '(allow file-read* file-write* (subpath ' + json.dumps(str(work)) + '))\n'
-                       '(allow file-read* file-write* (literal "/dev/null") (literal "/dev/urandom"))\n')
+                       '(allow file-read* file-write* (literal "/dev/null") (literal "/dev/urandom"))\n', encoding='utf-8')
     return ['/usr/bin/sandbox-exec', '-f', str(profile), *argv]
 
 
@@ -216,7 +216,7 @@ for check in checks:
     except PermissionError:
         continue
     raise SystemExit('restriction not enforced')
-''')
+''', encoding='utf-8')
                 check = isolated(work, [sys.executable, '-I', '-B', str(probe)])
                 if check.returncode:
                     return result(INCONCLUSIVE, 'isolation self-check failed; generated code not executed',
@@ -335,7 +335,7 @@ def process_run(run, case, arm, number, roots, mappings=None):
         row['completion'] = result(PASS if complete else INCONCLUSIVE, 'observed terminal execution status')
         if verified_case == 'develop-withdrawal':
             # Fixture content is trusted source, read without executing it here.
-            fixture = (FIXTURES / verified_case / 'fixture.sh').read_text()
+            fixture = (FIXTURES / verified_case / 'fixture.sh').read_text(encoding='utf-8')
             tests = fixture.split("cat > test_account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             code = fixture.split("cat > account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             row['fullTrace'] = verify(events, tests, code)
@@ -385,14 +385,14 @@ def main():
     mappings = {}
     if args.case_map:
         try:
-            mappings = json.loads(args.case_map.read_text())
+            mappings = json.loads(args.case_map.read_text(encoding='utf-8'))
             if not isinstance(mappings, dict):
                 raise ValueError('case mapping must be a JSON object')
         except (OSError, ValueError) as error:
             parser.error('invalid case mapping: ' + str(error))
     for aggregate in args.aggregate:
         try:
-            data = json.loads(aggregate.read_text())
+            data = json.loads(aggregate.read_text(encoding='utf-8'))
             if not isinstance(data, dict) or not isinstance(data.get('cases'), list):
                 raise ValueError('missing cases array')
             loaded.append((aggregate, data))
@@ -427,11 +427,11 @@ def main():
     counts = {outcome: sum(r['outcome'] == outcome for r in rows) for outcome in (PASS, FAIL, INCONCLUSIVE)}
     overall = FAIL if counts[FAIL] else INCONCLUSIVE if counts[INCONCLUSIVE] or errors or not rows else PASS
     report = dict(schemaVersion=1, outcome=overall, counts=counts, errors=errors, runs=rows)
-    (output / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    (output / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     lines = ['# Post-evaluation verification', '', f'Overall: {overall}', '',
              '| Case | Arm | Run | Outcome |', '| --- | --- | ---: | --- |']
     lines += [f"| {r['case']} | {r['arm']} | {r['run']} | {r['outcome']} |" for r in rows]
-    (output / 'verification.md').write_text('\n'.join(lines) + '\n')
+    (output / 'verification.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(json.dumps({'outcome': overall, 'counts': counts, 'errors': errors}))
     return 0 if overall == PASS else 1 if overall == FAIL else 2
 
