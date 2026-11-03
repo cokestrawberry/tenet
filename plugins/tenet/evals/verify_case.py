@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Independently verify a preserved Claude Code evaluation workspace."""
+import argparse
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+CASES = {"develop-withdrawal", "review-domain-invariant", "review-no-dogma"}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("case", choices=sorted(CASES))
+    parser.add_argument("workspace", type=pathlib.Path)
+    args = parser.parse_args()
+    workspace = args.workspace.resolve()
+    fixture = pathlib.Path(__file__).parent / args.case / "fixture.sh"
+    if not workspace.is_dir():
+        parser.error(f"Missing workspace: {workspace}")
+
+    with tempfile.TemporaryDirectory() as root:
+        expected = pathlib.Path(root)
+        subprocess.run(["bash", str(fixture)], cwd=expected, check=True)
+        originals = {
+            p.relative_to(expected): p.read_bytes()
+            for p in expected.rglob("*") if p.is_file()
+        }
+        if args.case.startswith("review-"):
+            actual = {
+                p.relative_to(workspace): p.read_bytes()
+                for p in workspace.rglob("*") if p.is_file()
+            }
+            if actual != originals:
+                unexpected = sorted(str(p) for p in actual.keys() - originals.keys())
+                changed = sorted(
+                    str(p) for p in actual.keys() & originals.keys()
+                    if actual[p] != originals[p]
+                )
+                missing = sorted(str(p) for p in originals.keys() - actual.keys())
+                print(
+                    f"FAIL: review changed workspace "
+                    f"(extra={unexpected}, changed={changed}, missing={missing})"
+                )
+                return 1
+            print("PASS: review workspace matches fixture")
+            return 0
+
+        check = """
+import unittest
+from account import Account
+
+
+class WithdrawalContract(unittest.TestCase):
+    def test_initial_balance(self):
+        self.assertEqual(Account(100).balance, 100)
+
+    def test_subtract(self):
+        account = Account(100)
+        account.withdraw(30)
+        self.assertEqual(account.balance, 70)
+
+    def test_full_balance(self):
+        account = Account(100)
+        account.withdraw(100)
+        self.assertEqual(account.balance, 0)
+
+    def test_invalid_values_preserve_balance(self):
+        for amount in (0, -1, 101):
+            with self.subTest(amount=amount):
+                account = Account(100)
+                with self.assertRaises(ValueError):
+                    account.withdraw(amount)
+                self.assertEqual(account.balance, 100)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
+"""
+        script = expected / "check.py"
+        script.write_text(
+            "import sys\nsys.path.insert(0, " + repr(str(workspace)) + ")\n" + check
+        )
+        result = subprocess.run(
+            [sys.executable, "-B", "-I", str(script)],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        print(result.stdout + result.stderr)
+        return result.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())
