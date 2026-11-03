@@ -27,36 +27,36 @@ Do not treat a bare invocation as permission to change code.
 
 ### Domain
 
-1. **Model the real domain.** Map actual requirements and business decisions into data and behavior.
+**Tenet 1: Model the real domain.** Map actual requirements and business decisions into data and behavior.
    Do not introduce rich domain layers for trivial utilities or CRUD without a concrete need.
-2. **Keep a shared language.** Use consistent domain terms in code, tests, and documentation within
+**Tenet 2: Keep a shared language.** Use consistent domain terms in code, tests, and documentation within
    a bounded context. Different contexts may legitimately assign different meanings to a word.
-3. **Protect invariants.** Make valid states and transitions explicit; enforce rules in the
+**Tenet 3: Protect invariants.** Make valid states and transitions explicit; enforce rules in the
    responsible domain model or service. Do not assume that types alone can encode every rule.
-4. **Respect model boundaries.** Keep responsibilities coherent and prevent infrastructure concerns
+**Tenet 4: Respect model boundaries.** Keep responsibilities coherent and prevent infrastructure concerns
    from governing business rules. A bounded context is not synonymous with a directory or service.
 
 ### Testing
 
-5. **Define behavior before coding.** Identify the next small expected outcome and its failure
+**Tenet 5: Define behavior before coding.** Identify the next small expected outcome and its failure
    conditions. For new behavior, start with a test that currently fails for the expected reason.
-6. **Follow Red-Green-Refactor.** Observe the failure, write the least implementation required
+**Tenet 6: Follow Red-Green-Refactor.** Observe the failure, write the least implementation required
    to pass, and simplify without breaking the test. Do not fake tests that cannot honestly run.
-7. **Test behavior and meaningful failures.** Verify observable outcomes, important error paths,
+**Tenet 7: Test behavior and meaningful failures.** Verify observable outcomes, important error paths,
    boundary conditions, and domain transitions. Treat coverage and mutation scores as evidence,
    not proof. Avoid tests coupled solely to mocks or implementation details.
 
 ### Design
 
-8. **Make dependencies and state explicit.** Validate external input at boundaries; expose
+**Tenet 8: Make dependencies and state explicit.** Validate external input at boundaries; expose
    meaningful side effects. Address retries, idempotency, and shared mutable state when relevant.
-9. **Subtract before adding.** Prefer the smallest clear change, remove unnecessary complexity,
+**Tenet 9: Subtract before adding.** Prefer the smallest clear change, remove unnecessary complexity,
    and consolidate decisions that must stay consistent. Do not merge distinct domain concepts
    merely because their implementations look similar.
 
 ### Evolution
 
-10. **Change with evidence.** Reproduce defects, fix causes rather than symptoms, and make
+**Tenet 10: Change with evidence.** Reproduce defects, fix causes rather than symptoms, and make
     small verifiable changes. Preserve existing contracts when refactoring. Separate established
     problems from preferences or unverified hypotheses.
 
