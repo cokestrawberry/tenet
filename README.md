@@ -15,7 +15,7 @@ Tenet uses both perspectives to evaluate design and implementation choices.
 | Area | Principles |
 | --- | --- |
 | Domain | Model the real domain, use a shared language, protect invariants, and respect model boundaries |
-| Testing | Define behavior before coding, follow Red-Green-Refactor, and verify observable outcomes and meaningful failures |
+| Testing | Define behavior first, follow Red-Green-Refactor, and test observable results and failures |
 | Design | Make dependencies and state explicit, and simplify before adding complexity |
 | Evolution | Change safely with evidence |
 
