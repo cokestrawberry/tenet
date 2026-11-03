@@ -1,0 +1,32 @@
+schema_version: "1.1"
+name: develop-withdrawal
+description: Implement withdrawal by adding behavior tests and preserving existing behavior
+context:
+  scaffold_script: fixture.sh
+execution:
+  max_turns: 30
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill, Write, Edit, Bash]
+  prompt: >-
+    /tenet develop account.py: add withdraw(amount), subtract a positive amount from balance,
+    and raise ValueError for zero, negative, or insufficient amounts.
+    Write and run unittest tests for the new behavior.
+graders:
+  - name: method-present
+    type: regex
+    pattern: 'def withdraw\('
+    target:
+      source: file
+      path: account.py
+  - name: test-behavior-added
+    type: regex
+    pattern: 'def test_.*withdraw'
+    target:
+      source: file
+      path: test_account.py
+  - name: rejects-invalid-input
+    type: regex
+    pattern: '(assertRaises|raises)\(ValueError'
+    target:
+      source: file
+      path: test_account.py

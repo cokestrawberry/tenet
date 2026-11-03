@@ -1,0 +1,16 @@
+schema_version: "1.1"
+name: review-domain-invariant
+description: Detect that a filled order can be cancelled, without editing its source
+context:
+  scaffold_script: fixture.sh
+execution:
+  max_turns: 20
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill]
+  prompt: /tenet review order.py
+graders:
+  - name: reports-cancel-of-filled-order
+    type: llm
+    criteria: >-
+      The review reports as a defect that Order.cancel() changes the status of an order that is
+      already FILLED and cites the documented rule that forbids it.
