@@ -50,7 +50,7 @@ class VerifierIsolationTests(unittest.TestCase):
                         self.workspace(work / 'workspace', correct, shadow)
                         shutil.copy2(post_eval.HERE / 'verify_case.py', work / 'verify_case.py')
                         (work / 'develop-withdrawal').mkdir()
-                        shutil.copy2(post_eval.HERE / 'develop-withdrawal/fixture.sh', work / 'develop-withdrawal/fixture.sh')
+                        shutil.copy2(post_eval.FIXTURES / 'develop-withdrawal/fixture.sh', work / 'develop-withdrawal/fixture.sh')
                         proc = post_eval.isolated(work, [sys.executable, '-I', '-B', str(work / 'verify_case.py'),
                                                        'develop-withdrawal', str(work / 'workspace')])
                         self.assertEqual(proc.returncode, 0 if correct else 1, proc.stdout + proc.stderr)
