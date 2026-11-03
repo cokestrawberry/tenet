@@ -17,7 +17,5 @@ jobs:
           python-version: '3.12'
       - name: Install pre-commit
         run: python -m pip install pre-commit
-      - name: Test evaluation verification
-        run: python -B -m unittest discover -s evals/tests -v
       - name: Run pre-commit
         run: pre-commit run --all-files

@@ -1,0 +1,24 @@
+name: Evaluation verification
+
+on:
+  pull_request:
+    paths:
+      - 'evals/**'
+      - 'plugins/tenet/evals/**'
+      - '.gitattributes'
+      - '.github/workflows/evaluation-verification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Evaluation regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Run evaluation regression tests
+        run: python -B -m unittest discover -s evals/tests -v

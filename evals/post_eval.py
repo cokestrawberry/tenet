@@ -5,6 +5,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -122,9 +123,9 @@ def resolve_run(run, case, arm, number, roots):
         source = candidate / 'source.json'
         kept = candidate / 'kept-source.txt'
         if source.is_file():
-            origin = json.loads(source.read_text())['source']
+            origin = json.loads(source.read_text(encoding='utf-8'))['source']
         elif kept.is_file():
-            origin = kept.read_text().strip()
+            origin = kept.read_text(encoding='utf-8').strip()
         else:
             continue
         if Path(origin) != original.parent.parent:
@@ -169,7 +170,7 @@ def sandbox_command(work, argv):
     profile.write_text('(version 1)\n(allow default)\n(deny network*)\n'
                        '(deny file-read* (subpath "/Users"))\n(deny file-write*)\n'
                        '(allow file-read* file-write* (subpath ' + json.dumps(str(work)) + '))\n'
-                       '(allow file-read* file-write* (literal "/dev/null") (literal "/dev/urandom"))\n')
+                       '(allow file-read* file-write* (literal "/dev/null") (literal "/dev/urandom"))\n', encoding='utf-8')
     return ['/usr/bin/sandbox-exec', '-f', str(profile), *argv]
 
 
@@ -177,7 +178,7 @@ def isolated(work, argv):
     env = {'PATH': str(Path(sys.executable).parent) + ':/usr/bin:/bin',
            'HOME': str(work), 'TMPDIR': str(work / 'tmp'), 'PYTHONDONTWRITEBYTECODE': '1'}
     return subprocess.run(sandbox_command(work, argv), cwd=work, env=env,
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, encoding='utf-8', timeout=60)
 
 
 def independent(case, workspace):
@@ -200,9 +201,10 @@ def independent(case, workspace):
             shutil.copy2(HERE / 'verify_case.py', work / 'verify_case.py')
             (work / case).mkdir()
             shutil.copy2(FIXTURES / case / 'fixture.sh', work / case / 'fixture.sh')
-            argv = [sys.executable, '-I', '-B', str(work / 'verify_case.py'), case, str(copied)]
+            argv = [sys.executable, '-I', '-B', '-X', 'utf8', str(work / 'verify_case.py'), case, str(copied)]
             if case.startswith('review-'):
-                proc = subprocess.run(argv, cwd=work, capture_output=True, text=True, timeout=30)
+                proc = subprocess.run(argv, cwd=work, capture_output=True, text=True,
+                                      encoding='utf-8', timeout=30)
             else:
                 # Verify restrictions before loading any agent-generated Python.
                 probe = work / 'probe.py'
@@ -216,8 +218,8 @@ for check in checks:
     except PermissionError:
         continue
     raise SystemExit('restriction not enforced')
-''')
-                check = isolated(work, [sys.executable, '-I', '-B', str(probe)])
+''', encoding='utf-8')
+                check = isolated(work, [sys.executable, '-I', '-B', '-X', 'utf8', str(probe)])
                 if check.returncode:
                     return result(INCONCLUSIVE, 'isolation self-check failed; generated code not executed',
                                   exit=check.returncode, stdout=check.stdout, stderr=check.stderr)
@@ -225,7 +227,18 @@ for check in checks:
             output = proc.stdout + proc.stderr
             if proc.returncode == 0:
                 return result(PASS, 'independent fixture/behavior verification passed', output=output)
-            if 'FAIL: review changed workspace' in output or 'FAILED (' in output:
+            lines = proc.stdout.splitlines()
+            failed_contract = any(
+                line.startswith('Ran 4 tests in ') and line.endswith('s') and
+                index + 2 < len(lines) and lines[index + 1] == '' and
+                re.fullmatch(
+                    'FAILED [(](?:failures|errors)=[0-9]+'
+                    '(?:, (?:failures|errors)=[0-9]+)*[)]',
+                    lines[index + 2])
+                for index, line in enumerate(lines))
+            if ((case.startswith('review-') and
+                 proc.stdout.startswith('FAIL: review changed workspace')) or
+                (case == 'develop-withdrawal' and failed_contract)):
                 return result(FAIL, 'independent verification failed', output=output)
             return result(INCONCLUSIVE, 'verifier could not complete', exit=proc.returncode, output=output)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
@@ -279,7 +292,7 @@ def test_effectiveness(workspace):
             observations = {}
             reference_count = None
             for variant in MUTATIONS:
-                proc = isolated(work, [sys.executable, '-I', '-B', str(runner), variant, str(submitted)])
+                proc = isolated(work, [sys.executable, '-I', '-B', '-X', 'utf8', str(runner), variant, str(submitted)])
                 if proc.returncode != 0:
                     return result(INCONCLUSIVE, 'mutation runner did not complete', variant=variant,
                                   exit=proc.returncode, stderr=proc.stderr)
@@ -335,7 +348,7 @@ def process_run(run, case, arm, number, roots, mappings=None):
         row['completion'] = result(PASS if complete else INCONCLUSIVE, 'observed terminal execution status')
         if verified_case == 'develop-withdrawal':
             # Fixture content is trusted source, read without executing it here.
-            fixture = (FIXTURES / verified_case / 'fixture.sh').read_text()
+            fixture = (FIXTURES / verified_case / 'fixture.sh').read_text(encoding='utf-8')
             tests = fixture.split("cat > test_account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             code = fixture.split("cat > account.py <<'EOF'\n", 1)[1].split('\nEOF', 1)[0] + '\n'
             row['fullTrace'] = verify(events, tests, code)
@@ -385,14 +398,14 @@ def main():
     mappings = {}
     if args.case_map:
         try:
-            mappings = json.loads(args.case_map.read_text())
+            mappings = json.loads(args.case_map.read_text(encoding='utf-8'))
             if not isinstance(mappings, dict):
                 raise ValueError('case mapping must be a JSON object')
         except (OSError, ValueError) as error:
             parser.error('invalid case mapping: ' + str(error))
     for aggregate in args.aggregate:
         try:
-            data = json.loads(aggregate.read_text())
+            data = json.loads(aggregate.read_text(encoding='utf-8'))
             if not isinstance(data, dict) or not isinstance(data.get('cases'), list):
                 raise ValueError('missing cases array')
             loaded.append((aggregate, data))
@@ -427,11 +440,11 @@ def main():
     counts = {outcome: sum(r['outcome'] == outcome for r in rows) for outcome in (PASS, FAIL, INCONCLUSIVE)}
     overall = FAIL if counts[FAIL] else INCONCLUSIVE if counts[INCONCLUSIVE] or errors or not rows else PASS
     report = dict(schemaVersion=1, outcome=overall, counts=counts, errors=errors, runs=rows)
-    (output / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    (output / 'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     lines = ['# Post-evaluation verification', '', f'Overall: {overall}', '',
              '| Case | Arm | Run | Outcome |', '| --- | --- | ---: | --- |']
     lines += [f"| {r['case']} | {r['arm']} | {r['run']} | {r['outcome']} |" for r in rows]
-    (output / 'verification.md').write_text('\n'.join(lines) + '\n')
+    (output / 'verification.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     print(json.dumps({'outcome': overall, 'counts': counts, 'errors': errors}))
     return 0 if overall == PASS else 1 if overall == FAIL else 2
 

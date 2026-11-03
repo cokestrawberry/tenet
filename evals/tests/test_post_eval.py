@@ -1,14 +1,16 @@
 """Regressions for evidence omissions, read-only violations and verdict precedence."""
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import post_eval
+import verify_case
 import verify_trace
 
 BASE = '''import unittest
@@ -300,20 +302,43 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fixture = post_eval.FIXTURES / 'review-no-dogma/fixture.sh'
-            import subprocess
-            subprocess.run(['bash', str(fixture)], cwd=root, check=True)
+            for name, data in verify_case.fixture_files(fixture).items():
+                (root / name).write_bytes(data)
             self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'PASS')
             (root / '__pycache__').mkdir()
             (root / '__pycache__/increment.pyc').write_bytes(b'bytecode')
             self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'FAIL')
 
-    def test_symlink_and_permission_errors_are_explicit(self):
+    def test_root_and_nested_symlink_rejection_without_link_privileges(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / 'escape').symlink_to('/etc/passwd')
+            with patch.object(Path, 'is_symlink', return_value=True):
+                with self.assertRaisesRegex(ValueError, 'workspace root is a symlink'):
+                    post_eval.plain_files(root)
+            entry = Mock(path=str(root / 'escape'))
+            entry.is_symlink.return_value = True
+            with patch.object(post_eval.os, 'scandir', return_value=nullcontext([entry])):
+                with self.assertRaisesRegex(ValueError, 'symlink in workspace'):
+                    post_eval.plain_files(root)
+
+    def test_permission_error_is_always_inconclusive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(post_eval.os, 'scandir', side_effect=PermissionError('sealed')):
+                self.assertEqual(post_eval.independent('review-no-dogma', Path(tmp))['outcome'],
+                                 'INCONCLUSIVE')
+
+    def test_real_symlink_is_rejected_if_creation_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / 'target.txt'
+            target.write_text('safe', encoding='utf-8')
+            try:
+                (root / 'escape').symlink_to(target)
+            except OSError as error:
+                if getattr(error, 'winerror', None) == 1314:
+                    self.skipTest('Windows symlink privilege not granted')
+                raise
             self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'INCONCLUSIVE')
-        with patch.object(post_eval, 'plain_files', side_effect=PermissionError('sealed')):
-            self.assertEqual(post_eval.independent('review-no-dogma', Path('/missing'))['outcome'], 'INCONCLUSIVE')
 
     def test_unavailable_sandbox_never_runs_generated_code_on_host(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,7 +373,7 @@ class WorkflowTests(unittest.TestCase):
             argv = ['post_eval.py', '--aggregate', str(aggregate), '--output', str(root / 'output')]
             with patch.object(sys, 'argv', argv):
                 self.assertEqual(post_eval.main(), 2)
-            rows = json.loads((root / 'output/verification.json').read_text())['runs']
+            rows = json.loads((root / 'output/verification.json').read_text(encoding='utf-8'))['runs']
             self.assertEqual([(r['arm'], r['run']) for r in rows], [('with', 1), ('with', 2), ('without', 1)])
 
     def test_probe_mapping_requires_matching_fixture_provenance(self):
