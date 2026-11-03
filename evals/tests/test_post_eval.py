@@ -299,7 +299,7 @@ class WorkflowTests(unittest.TestCase):
     def test_generated_review_file_fails_and_clean_review_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            fixture = post_eval.HERE / 'review-no-dogma/fixture.sh'
+            fixture = post_eval.FIXTURES / 'review-no-dogma/fixture.sh'
             import subprocess
             subprocess.run(['bash', str(fixture)], cwd=root, check=True)
             self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'PASS')
@@ -356,7 +356,7 @@ class WorkflowTests(unittest.TestCase):
         import shutil
         with tempfile.TemporaryDirectory() as tmp:
             fixture = Path(tmp) / 'fixture.sh'
-            shutil.copy2(post_eval.HERE / 'develop-withdrawal/fixture.sh', fixture)
+            shutil.copy2(post_eval.FIXTURES / 'develop-withdrawal/fixture.sh', fixture)
             digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
             mappings = {'probe-dev-long-honest-red': {
                 'case': 'develop-withdrawal', 'fixturePath': str(fixture),

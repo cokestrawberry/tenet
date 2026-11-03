@@ -15,7 +15,10 @@ def main():
     parser.add_argument("workspace", type=pathlib.Path)
     args = parser.parse_args()
     workspace = args.workspace.resolve()
-    fixture = pathlib.Path(__file__).parent / args.case / "fixture.sh"
+    script_dir = pathlib.Path(__file__).resolve().parent
+    repository_fixture = script_dir.parent / "plugins/tenet/evals" / args.case / "fixture.sh"
+    copied_fixture = script_dir / args.case / "fixture.sh"
+    fixture = copied_fixture if copied_fixture.is_file() else repository_fixture
     if not workspace.is_dir():
         parser.error(f"Missing workspace: {workspace}")
 
