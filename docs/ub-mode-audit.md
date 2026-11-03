@@ -37,7 +37,7 @@ Tenet의 개발·수정·리팩터링·검토 공통 원칙을 설계하기 위�
 - Sequence Work into Verifiable Units: 작은 단위 변경 및 검증
 - Test Behavior, Not Implementation: 사용자가 관찰하는 결과 검증
 - Crapper, Dryer, Mutator: 특정 분석 도구로 품질 확인
-- Refactoring: 동작 보존 증명 후 구조 변경
+- Refactoring: 현재 동작 고정 → 구조 변경 → 동작 불변 증명
 
 세 번째 구역의 Keep a Log, Guard the Context Window, Worktree Cleanup,
 Commit and Push는 설계 품질 자체보다 에이전트의 작업 운영 방식에 가깝습니다.
@@ -48,7 +48,7 @@ Commit and Push는 설계 품질 자체보다 에이전트의 작업 운영 방�
 | --- | --- | --- | --- |
 | [crapper](https://github.com/unclebob/crapper) | 복잡도와 커버리지로 CRAP 점수 산출 | 언어별 테스트·커버리지 도구 활용 | 선택적 참고 |
 | [dryer](https://github.com/unclebob/dryer) | 정규화된 구문 구조의 유사도 검사 | 기본 후보 임계값 0.82 | 선택적 참고 |
-| [mutator](https://github.com/unclebob/mutator) | 코드를 변형해 테스트의 결함 탐지 능력 점검 | 일부 분석에 옆 경로의 crapper 필요 | 선택적 참고 |
+| [mutator](https://github.com/unclebob/mutator) | 코드를 변형해 테스트의 결함 탐지 능력 점검 | 실행 시 옆 경로(`../crapper`)에 crapper 체크아웃 필요(이름 식별·기본 커버리지 생성) | 선택적 참고 |
 | [uml-viewer](https://github.com/unclebob/uml-viewer) | 구조·의존성·품질 지표 시각화 | Clojure/Java 및 부가 실행 환경 사용 | 선택적 참고 |
 
 `ub-mode`는 CRAP 점수 10 미만, 유사도 0.8 이상 제거, 변이 테스트 적용을
