@@ -1,11 +1,14 @@
 # Tenet
 
-DDD(Domain-Driven Design)와 TDD(Test-Driven Development)를 중심으로
+도메인 주도 설계(DDD)와 테스트 주도 개발(TDD)를 중심으로
 개발과 코드 검토에 공통으로 적용할 수 있는 소프트웨어 엔지니어링 원칙입니다.
 
 Tenet은 코딩 에이전트가 새로운 기능을 만들거나 기존 코드를 수정·리팩터링·검토할 때
 도메인과 사용자 동작을 중심으로 판단하도록 돕는 Skill입니다.
 Claude Code와 Codex에서 사용할 수 있도록 Plugin 구조로 배포합니다.
+
+도메인은 소프트웨어가 해결할 업무 영역이며, 테스트는 예상하는 동작을 검증하는 수단입니다.
+Tenet은 두 관점을 함께 사용해 설계와 구현의 타당성을 판단합니다.
 
 ## 핵심 원칙
 
@@ -64,7 +67,7 @@ $tenet:tenet review src/orders/
 
 ## 설계 방향
 
-- Entity, Aggregate, Repository와 같은 DDD 패턴을 무조건 요구하지 않습니다.
+- 특정 객체 유형, 계층 구조나 설계 패턴을 무조건 요구하지 않습니다.
 - 완성된 코드만으로 과거 개발자가 TDD를 사용했는지 단정하지 않습니다.
 - 외부 분석 도구나 다른 저장소의 체크아웃을 필수로 요구하지 않습니다.
 - 복잡도, 중복도, 커버리지, 변이 테스트의 수치를 단독 판정 기준으로 사용하지 않습니다.
@@ -82,9 +85,9 @@ $tenet:tenet review src/orders/
 
 ## 출처 및 라이선스
 
-프로젝트는 [ub-mode](https://github.com/unclebob/ub-mode)에서 출발한 설계 원칙을
-DDD·TDD 관점으로 재구성합니다. 원본 도구인 crapper, dryer, mutator, uml-viewer를
-실행 의존성으로 포함하지 않습니다.
+프로젝트는 기존 소프트웨어 엔지니어링 지침의 원칙을 DDD·TDD 관점에서 재구성했습니다.
+별도 분석 도구나 외부 저장소 설치 없이 사용할 수 있습니다.
+참고한 프로젝트 목록과 출처는 원본 저작권 고지 문서에 정리했습니다.
 
 Tenet 자체는 [MIT](LICENSE) 라이선스로 제공됩니다.
 참고한 원본의 저작권·라이선스는 [THIRD_PARTY_NOTICES.md](plugins/tenet/THIRD_PARTY_NOTICES.md)를 확인하십시오.
