@@ -1,5 +1,11 @@
 # Tenet 평가 실행 및 검증
 
+Claude Code의 네이티브 평가 사례(`case.yaml`, `fixture.sh`)는
+`plugins/tenet/evals/`에 남겨 `claude plugin eval plugins/tenet` 명령과 호환되도록 합니다.
+플러그인 설치에 불필요한 Python 후처리 도구와 회귀 검사는 저장소 루트
+`evals/`에서 관리합니다. 개별 macOS 평가의 trace, 로그, 보고서 및
+보충 probe 원본은 Git에 올리지 않고 저장소 외부에 보관합니다.
+
 ## 목표
 
 개발 및 코드 검토에서 Tenet의 동작을 평가하고, 채점기의 오판을 탐지합니다.
@@ -69,14 +75,14 @@ Python의 `__pycache__` 같은 생성 파일도 읽기 전용 위반으로 취�
 개발 사례는 보존된 작업 공간에서 다음 명령으로 독립 기능 테스트를 실행합니다.
 
 ```bash
-python3 plugins/tenet/evals/verify_case.py develop-withdrawal /path/to/eval/workspace
+python3 evals/verify_case.py develop-withdrawal /path/to/eval/workspace
 ```
 
 검토 사례에도 같은 도구를 적용할 수 있습니다.
 
 ```bash
-python3 plugins/tenet/evals/verify_case.py review-domain-invariant /path/to/eval/workspace
-python3 plugins/tenet/evals/verify_case.py review-no-dogma /path/to/eval/workspace
+python3 evals/verify_case.py review-domain-invariant /path/to/eval/workspace
+python3 evals/verify_case.py review-no-dogma /path/to/eval/workspace
 ```
 
 검증 도구는 **이미 보존된 작업 공간에만** 적용합니다. 단일 평가의 자동 grader에
@@ -97,7 +103,7 @@ grader의 판정을 **단독 증거로 인정하지 않고 `판단 불가`로** 
 모든 사례의 적용·미적용 조건과 반복 회차를 처리합니다. LLM 점수만으로 최종 통과를 판단하지 않습니다.
 
 ```bash
-python3 -B plugins/tenet/evals/post_eval.py \
+python3 -B evals/post_eval.py \
   --aggregate ../tenet-eval-results/review/aggregate-result.json \
   --aggregate ../tenet-eval-results/develop/aggregate-result.json \
   --output ../tenet-eval-results/post-verification-1
@@ -109,7 +115,7 @@ python3 -B plugins/tenet/evals/post_eval.py \
 임시 파일이 이미 정리됐다면 보존한 사본을 `--run-root`로 지정합니다.
 
 ```bash
-python3 -B plugins/tenet/evals/post_eval.py \
+python3 -B evals/post_eval.py \
   --aggregate /path/to/results/aggregate-result.json \
   --run-root /path/to/preserved-runs \
   --output /path/to/new-verification
@@ -162,7 +168,7 @@ JSON의 `runs`와 `errors`를 함께 확인합니다. 생성된 요약은 원래
 로컬 회귀 검사는 다음과 같이 실행합니다. 모델 호출은 없습니다.
 
 ```bash
-python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
+python3 -B -m unittest discover -s evals/tests -v
 ```
 
 이전 평가 자료가 있으면 다음 변수로 두 라운드의 실제 기록을 사용하는 회귀 검사도 실행할 수 있습니다.
@@ -171,7 +177,7 @@ python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
 ```bash
 TENET_PREVIOUS_EVAL=/path/to/previous-evaluation \
 TENET_POSTFIX_EVAL=/path/to/postfix-evaluation \
-python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
+python3 -B -m unittest discover -s evals/tests -v
 ```
 
 ### 보충 Probe의 검증 및 판정
@@ -197,7 +203,7 @@ JSON 매핑의 키는 평가 결과의 사례 이름이며, 각 항목의 `case`
 전체 Trace의 경로와 보존본의 출처도 종전 방식으로 별도 확인합니다.
 
 ```bash
-python3 -B plugins/tenet/evals/post_eval.py \
+python3 -B evals/post_eval.py \
   --aggregate /path/to/supplement/aggregate-result.json \
   --run-root /path/to/preserved-runs \
   --case-map /path/to/probe-case-map.json \
@@ -209,13 +215,15 @@ python3 -B plugins/tenet/evals/post_eval.py \
 실행 완료·파일 재현·리팩터링 보고가 모두 통과해야 LLM 실패 교정을 검토합니다.
 기능 Grader가 PASS이면 과정 Grader의 잘못된 FAIL을 전체 Trace 근거로 교정할 수 있습니다.
 
-기능 Grader가 FAIL인 경우에는 제출한 `test_account.py`의 **테스트 효과 검사**
-(`testEffectiveness`)도 PASS여야 교정합니다. 신뢰한 출금 구현에서 제출 테스트를
+독립 증거가 모두 완전하고 기능 Grader가 FAIL인 경우에만, 제출한 `test_account.py`의 **테스트 효과 검사**
+(`testEffectiveness`)가 PASS여야 교정합니다. 이미 기능 Grader가 PASS인 회차에
+이 변이 검사 결과를 추가 필수 조건으로 요구하지 않습니다. 신뢰한 출금 구현에서 제출 테스트를
 통과시킨 다음, 출금액 미차감, 0·음수·잔액 초과 허용, 잘못된 입력에서 잔액 변경을
 일으키는 7개 변형 구현으로 같은 제출 테스트를 각각 실행합니다.
 기준 구현이 통과하고 7개 변형 모두를 테스트 실패로 검출해야 PASS입니다.
-변형 일부를 검출하지 못하면 FAIL이며, 지원하지 않는 테스트 형식이나 실행 오류는
-INCONCLUSIVE입니다. 테스트는 독립 행동 계약 검사를 통과한 회차에서만
+변형 일부를 검출하지 못하면 `INCONCLUSIVE`입니다. 이는 해당 변이 집합만으로
+원래 기능이 틀렸다고 확정할 수 없기 때문입니다. 지원하지 않는 테스트 형식이나
+실행 오류도 `INCONCLUSIVE`로 기록합니다. 테스트는 독립 행동 계약 검사를 통과한 회차에서만
 별도 macOS `sandbox-exec` 격리로 실행하고, 제출된 다른 Python 모듈은
 작업 공간에 복사하지 않습니다. Python `-I`를 사용하고 표준 `unittest`는
 제출 테스트를 읽기 전에 가져옵니다.
