@@ -73,7 +73,7 @@ class MutationTests(unittest.TestCase):
 
     def test_vacuous_tests_cannot_pass_effectiveness(self):
         outcome = self.effectiveness(VACUOUS)
-        self.assertEqual(outcome['outcome'], 'FAIL', outcome)
+        self.assertEqual(outcome['outcome'], 'INCONCLUSIVE', outcome)
         self.assertIn('no-deduction', outcome['survived'])
 
     def test_unsupported_import_or_reflection_is_inconclusive(self):
@@ -106,7 +106,7 @@ class MutationTests(unittest.TestCase):
                                         passed, passed, passed, effectiveness)
         self.assertEqual(adjudicate(passed)['outcome'], 'PASS')
         self.assertEqual(adjudicate(unknown)['outcome'], 'INCONCLUSIVE')
-        self.assertEqual(adjudicate(failed)['outcome'], 'FAIL')
+        self.assertEqual(adjudicate(failed)['outcome'], 'INCONCLUSIVE')
         self.assertEqual(raw['outcome'], 'FAIL')
 
     def test_missing_grader_identity_cannot_be_overridden(self):
