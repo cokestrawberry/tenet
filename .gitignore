@@ -1,1 +1,9 @@
 plugins/tenet/evals/results/
+/evals/results/
+/evals/evidence/
+/evals/logs/
+/evals/reports/
+/evals/outputs/
+/tenet-eval-results/
+__pycache__/
+*.pyc
