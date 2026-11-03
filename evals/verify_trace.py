@@ -315,7 +315,7 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
 
 
 def read_trace(path):
-    with path.open() as stream:
+    with path.open(encoding='utf-8') as stream:
         events = [json.loads(line) if line.strip() else {} for line in stream]
     for event in events:
         if not isinstance(event, dict) or not isinstance(event.get('message', {}), dict):
