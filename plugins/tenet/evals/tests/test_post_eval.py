@@ -310,15 +310,15 @@ class WorkflowTests(unittest.TestCase):
             root = Path(tmp)
             trace = root / 'trace.jsonl'
             trace.write_text(json.dumps({
-                'type': 'result', 'subtype': 'success', 'is_error': False}) + '\\n')
+                'type': 'result', 'subtype': 'success', 'is_error': False}) + '\n')
             workspace = root / 'workspace'
             workspace.mkdir()
             passed = post_eval.result('PASS', 'checked')
             failed_trace = {'outcome': 'FAIL', 'replayedSha256': {'account.py': 'invalid'},
                             'refactoringDecision': {'status': 'INCONCLUSIVE'}}
             run = {'tracePath': str(trace), 'graders': [{'passed': True}]}
-            with patch.object(post_eval, 'resolve_run', return_value=(trace, workspace)), \\
-                 patch.object(post_eval, 'independent', return_value=passed), \\
+            with patch.object(post_eval, 'resolve_run', return_value=(trace, workspace)), \
+                 patch.object(post_eval, 'independent', return_value=passed), \
                  patch.object(post_eval, 'verify', return_value=failed_trace):
                 actual = post_eval.process_run(run, 'develop-withdrawal', 'with', 1, [])
             self.assertEqual(actual['fullTrace']['outcome'], 'FAIL')
