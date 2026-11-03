@@ -106,7 +106,7 @@ class MutationTests(unittest.TestCase):
                                         passed, passed, passed, effectiveness)
         self.assertEqual(adjudicate(passed)['outcome'], 'PASS')
         self.assertEqual(adjudicate(unknown)['outcome'], 'INCONCLUSIVE')
-        self.assertEqual(adjudicate(failed)['outcome'], 'INCONCLUSIVE')
+        self.assertEqual(adjudicate(failed)['outcome'], 'FAIL')
         self.assertEqual(raw['outcome'], 'FAIL')
 
     def test_missing_grader_identity_cannot_be_overridden(self):
