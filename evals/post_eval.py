@@ -82,6 +82,8 @@ def adjudicate(case, automatic_result, independent_result, completion, full_trac
         if grader.get('name') != names[index]:
             return result(INCONCLUSIVE, 'unexpected grader identity')
         verdicts.append(check['outcome'])
+    if any(verdict not in (PASS, FAIL) for verdict in verdicts):
+        return result(INCONCLUSIVE, 'grader error or missing verdict cannot be overridden')
     if verdicts[0] == PASS and verdicts[1] == FAIL:
         return result(PASS, 'full-trace and independent checks establish test-first behavior',
                       overriddenGrader=names[1])
