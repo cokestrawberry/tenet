@@ -84,12 +84,95 @@ python3 plugins/tenet/evals/verify_case.py review-no-dogma /path/to/eval/workspa
 Trace 기반 LLM grader는 Red→Green의 실제 순서와 리팩터링 판단을 평가하려고
 시도하지만, Claude Code 2.1.310에서 trace가 24개 메시지를 넘으면 **처음 12개와
 마지막 12개만** 채점 입력에 포함되고 중간은 생략될 수 있습니다.
-따라서 각 회차의 결과 JSON에서 `trace_path`를 찾아 전체 `trace.jsonl`을 별도로
+따라서 각 회차의 결과 JSON에서 `tracePath`를 찾아 전체 `trace.jsonl`을 별도로
 검토하고, 테스트 추가·기대한 실패 실행·구현 변경·최종 통과 실행의 순서와 출력을 확인합니다.
 24개 메시지를 초과해 필요한 근거가 채점 입력에서 누락될 수 있는 회차는 두 trace 기반
 grader의 판정을 **단독 증거로 인정하지 않고 `판단 불가`로** 표시합니다.
 전체 trace에 근거한 별도의 검증 결과와 grader 결과를 구분해 기록합니다.
 실제 파일 변경 여부는 trace만으로 보증하지 않고 독립 검증 결과를 우선합니다.
+
+### 필수 후처리 검증
+
+모델 평가가 끝나면 아래 명령을 실행합니다. 후처리는 모델을 호출하지 않으며,
+모든 사례의 적용·미적용 조건과 반복 회차를 처리합니다. LLM 점수만으로 최종 통과를 판단하지 않습니다.
+
+```bash
+python3 -B plugins/tenet/evals/post_eval.py \
+  --aggregate ../tenet-eval-results/review/aggregate-result.json \
+  --aggregate ../tenet-eval-results/develop/aggregate-result.json \
+  --output ../tenet-eval-results/post-verification-1
+```
+
+`--output`에는 아직 없는 별도 디렉터리를 지정합니다. 원래 결과나 증거 디렉터리 안에는 쓸 수 없습니다.
+원본 파일이나 접근 권한을 변경하지 않으며, 읽을 수 없는 증거는 `INCONCLUSIVE`로 기록합니다.
+실행 결과의 `tracePath`로 전체 기록과 같은 임시 디렉터리의 `sealed/home/cwd`를 찾습니다.
+임시 파일이 이미 정리됐다면 보존한 사본을 `--run-root`로 지정합니다.
+
+```bash
+python3 -B plugins/tenet/evals/post_eval.py \
+  --aggregate /path/to/results/aggregate-result.json \
+  --run-root /path/to/preserved-runs \
+  --output /path/to/new-verification
+```
+
+보존 사본은 `<run-root>/<사례>/<with 또는 without>-<회차>/` 구조입니다.
+그 안의 `out/trace.jsonl`과 `workspace/` 또는 `sealed/home/cwd/`를 사용합니다.
+`source.json`의 `source` 필드나 `kept-source.txt`에 원래 임시 디렉터리 경로가 있어야 합니다.
+결과 JSON의 `tracePath`와 이 경로를 비교하므로, 서로 다른 평가 자료가 섞여도 임의의 회차를 선택하지 않습니다.
+`--aggregate`와 `--run-root`는 여러 번 지정할 수 있습니다.
+
+후처리는 다음 근거를 기록합니다.
+
+- 검토: `verify_case.py`로 fixture와 모든 파일을 비교합니다. 생성 파일도 차이로 처리합니다.
+- 개발: 복사본에서 `verify_case.py`의 행동 검사를 실행합니다. macOS `sandbox-exec`가 필요합니다.
+  네트워크·사용자 디렉터리(`/Users`) 읽기·복사본 밖 쓰기의 차단을 먼저 검사합니다.
+  시스템 파일 읽기는 허용합니다. 격리 확인 실패나 지원하지 않는 운영체제에서는 생성 코드를 실행하지 않습니다.
+  행동 검사용 복사본에는 제출된 `account.py`만 넣습니다. `verify_case.py`도 작업 공간을
+  Python 모듈 검색 경로에 추가하지 않고, 표준 `unittest`를 가져온 뒤 해당 소스만 읽어 실행합니다.
+  제출된 `unittest.py`나 같은 이름의 디렉터리가 검증 도구 대신 로딩되지 않도록 합니다.
+- 과정: 전체 trace의 도구 호출과 결과를 대응시키고 `Edit`·`Write` 변경을 재현합니다.
+  새 테스트의 출금 호출과 잔액·예외 검사를 Python AST로 확인하고, 관찰된 실패·구현 변경·성공의 순서를 검사합니다.
+  재현한 파일이 보존된 최종 파일과 같은지도 확인합니다. 이벤트 위치는 1부터 시작하는 JSONL 줄과 0부터 시작하는 블록 번호입니다.
+- 보고: 최종 응답에서 리팩터링 결정의 명시적인 설명을 찾아 원문과 위치를 기록합니다.
+  이 설명은 에이전트의 주장으로 표시하며, 실제 테스트 실행의 증거로 사용하지 않습니다.
+
+현재 과정 검사는 출금 fixture의 Python `unittest` 실행을 지원합니다.
+특정 테스트 함수 이름은 요구하지 않으며, `python3 -m unittest` 같은 모듈 실행과 직접 파일 실행을 인식합니다.
+테스트 증거로 인정하는 명령은 단일 실행이어야 합니다. `2>&1`은 허용하지만 stderr 숨기기,
+파이프, `;`·`&&` 등으로 연결한 복합 명령은 실행 종료 상태와 출력의 출처를 분리할 수 없어 `INCONCLUSIVE`로 기록합니다.
+직접 실행한 도구의 오류 여부와 테스트 요약을 함께 확인해야 실패 또는 통과의 증거로 인정합니다.
+따라서 출력 필터를 사용한 과거 기록은 전체 trace가 있어도 과정 검증에 통과하지 못할 수 있습니다.
+최초 실패는 새 출금 테스트에서 `Account.withdraw`가 없어서 발생한 경우를 확인합니다.
+다른 실패 원인, 인식하지 못하는 명령·도구·편집, 불완전한 출력은 성공으로 추정하지 않습니다.
+지원 범위 밖의 올바른 구현도 `INCONCLUSIVE`가 될 수 있습니다.
+이 검사는 보존된 도구 출력에 근거하며, 테스트 코드가 의도적으로 위조한 출력을 판별하는 일반적인 증명 도구는 아닙니다.
+
+출력은 `verification.json`과 회차별 요약 `verification.md`입니다.
+JSON은 자동 채점, 독립 검사, 실행 완료 여부, 전체 trace 검사, 리팩터링 보고를 구분합니다.
+최종 판정은 아래 순서로 결합합니다.
+
+1. 필수 검사 중 하나라도 `FAIL`이면 최종 `FAIL`입니다. LLM 통과 점수로 덮어쓸 수 없습니다.
+2. 실패는 없지만 증거 누락·접근 제한·API 오류·채점 오류·검증 미지원이 있으면 `INCONCLUSIVE`입니다.
+3. 모든 필수 검사가 통과해야 `PASS`입니다.
+
+프로세스 종료 코드는 전체 `PASS`일 때 0, `FAIL`이 있을 때 1, 실패 없이 판단 불가일 때 2입니다.
+종료 코드 1은 후처리 명령 자체의 고장뿐 아니라 검증된 실패 회차가 있다는 뜻일 수 있습니다.
+JSON의 `runs`와 `errors`를 함께 확인합니다. 생성된 요약은 원래 LLM 점수를 수정하지 않습니다.
+
+로컬 회귀 검사는 다음과 같이 실행합니다. 모델 호출은 없습니다.
+
+```bash
+python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
+```
+
+이전 평가 자료가 있으면 다음 변수로 두 라운드의 실제 기록을 사용하는 회귀 검사도 실행할 수 있습니다.
+자료가 없는 환경에서는 해당 검사만 skip으로 기록합니다.
+
+```bash
+TENET_PREVIOUS_EVAL=/path/to/previous-evaluation \
+TENET_POSTFIX_EVAL=/path/to/postfix-evaluation \
+python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
+```
 
 ## 현재 한계 및 추가 평가 대상
 

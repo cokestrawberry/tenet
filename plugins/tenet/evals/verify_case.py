@@ -47,10 +47,6 @@ def main():
             return 0
 
         check = """
-import unittest
-from account import Account
-
-
 class WithdrawalContract(unittest.TestCase):
     def test_initial_balance(self):
         self.assertEqual(Account(100).balance, 100)
@@ -78,12 +74,19 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 """
         script = expected / "check.py"
+        # Load the trusted framework before executing only the submitted source.
+        # Never add the workspace to sys.path or load its cached bytecode/modules.
         script.write_text(
-            "import sys\nsys.path.insert(0, " + repr(str(workspace)) + ")\n" + check
+            "import pathlib\nimport types\nimport unittest\n"
+            "account_path = pathlib.Path(" + repr(str(workspace / 'account.py')) + ")\n"
+            "account_module = types.ModuleType('tenet_account_under_test')\n"
+            "account_module.__file__ = str(account_path)\n"
+            "exec(compile(account_path.read_bytes(), str(account_path), 'exec'), account_module.__dict__)\n"
+            "Account = account_module.Account\n" + check
         )
         result = subprocess.run(
             [sys.executable, "-B", "-I", str(script)],
-            cwd=workspace,
+            cwd=expected,
             capture_output=True,
             text=True,
             timeout=20,
