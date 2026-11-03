@@ -77,7 +77,9 @@ state that premise explicitly and verify it before another fix.
    A build failure, missing dependency, or failing unrelated test is not a valid Red state.
 4. Implement only enough to pass that test. Execute the test and relevant existing tests.
 5. Refactor while tests stay green. Repeat for the next case.
-6. Describe the resulting behavior and verification. Report any test you could not execute.
+6. Describe the resulting behavior and verification, including whether refactoring was done
+   or judged unnecessary. Report any test you could not execute. If a test is kept outside
+   the repository, state whether it will persist after the session and where it could be added.
 
 For legacy code, first determine what behavior must remain stable. Add characterization tests
 when useful and feasible; do not claim that this proves the behavior is correct.
