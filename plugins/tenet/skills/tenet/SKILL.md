@@ -72,7 +72,7 @@ state that premise explicitly and verify it before another fix.
 1. Inspect repository conventions, domain vocabulary, current behavior, and the requested change.
 2. Write down the observable success criteria and relevant failure and boundary cases.
 3. For new or changed behavior, select a small test, run it, and confirm the expected failure.
-A build failure, missing dependency, or failing unrelated test is not a valid Red state.
+   A build failure, missing dependency, or failing unrelated test is not a valid Red state.
 4. Implement only enough to pass that test. Execute the test and relevant existing tests.
 5. Refactor while tests stay green. Repeat for the next case.
 6. Describe the resulting behavior and verification. Report any test you could not execute.
@@ -91,18 +91,18 @@ changing behavior, verify again, and describe any limits of the evidence.
 ## Review
 
 1. Determine the requested scope and inspect relevant source, tests, documented requirements,
-and call paths. Do not assume a particular framework or DDD directory layout is required.
+   and call paths. Do not assume a particular framework or DDD directory layout is required.
 2. Reconstruct important domain rules and boundaries. Mark inferred rules as hypotheses until
-corroborated by requirements, tests, or demonstrable behavior.
+   corroborated by requirements, tests, or demonstrable behavior.
 3. Examine tests for business invariants, observable outcomes, failure paths, boundaries,
-and their sensitivity to incorrect behavior. Do not infer test-first history from the final tree.
+   and their sensitivity to incorrect behavior. Do not infer test-first history from the final tree.
 4. Check dependency direction, misplaced responsibilities, inappropriate shared state,
-unnecessary abstractions, and meaningful duplication only where relevant.
+   unnecessary abstractions, and meaningful duplication only where relevant.
 5. Verify suspected defects with existing tests, a trace, or a check that writes nothing into
    the repository. Do not add test files during review or run destructive commands.
 6. Report confirmed defects separately from design suggestions and unresolved questions.
-For each defect, provide its location, triggering condition, consequence, and evidence.
-If no supported defects are found, state that along with relevant review limitations.
+   For each defect, provide its location, triggering condition, consequence, and evidence.
+   If no supported defects are found, state that along with relevant review limitations.
 
 A requested review is read-only. Do not edit code, commit, push, or open PRs unless the user
 separately authorizes such changes.
