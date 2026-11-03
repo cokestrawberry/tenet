@@ -74,7 +74,7 @@ def adjudicate(case, automatic_result, independent_result, completion, full_trac
     verdicts = []
     for index, check in enumerate(graders):
         grader = check.get('grader', {})
-        if grader.get('name', names[index]) != names[index]:
+        if grader.get('name') != names[index]:
             return result(INCONCLUSIVE, 'unexpected grader identity')
         verdicts.append(check['outcome'])
     if verdicts[0] == PASS and verdicts[1] == FAIL:
@@ -263,7 +263,8 @@ def process_run(run, case, arm, number, roots, mappings=None):
         row['outcome'] = row['adjudication']['outcome']
     except (OSError, ValueError, KeyError, IndexError, TypeError, SyntaxError) as error:
         row['evidenceError'] = result(INCONCLUSIVE, 'missing, restricted, or malformed evidence', error=str(error))
-        checks = [row.get('independent', row['evidenceError']), row['evidenceError']]
+        checks = [row[key] for key in ('independent', 'completion', 'fullTrace', 'replayConsistency')
+                  if key in row]
         row['outcome'] = FAIL if any(c['outcome'] == FAIL for c in checks) else INCONCLUSIVE
     return row
 
