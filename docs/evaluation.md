@@ -72,6 +72,10 @@ Claude Code 2.1.310의 `--keep-temp` 결과에서는 회차별 `sealed/home/cwd`
 
 검토 사례는 fixture 밖의 새 파일이나 기존 파일 변경이 없는지 확인합니다.
 Python의 `__pycache__` 같은 생성 파일도 읽기 전용 위반으로 취급합니다.
+읽기 전용 검증은 신뢰된 `fixture.sh`에서 현재 세 사례가 사용하는
+`cat > 파일명 <<'EOF'` 형태의 고정 파일 생성만 해석하며 Bash를 실행하지 않습니다.
+지원 범위 밖의 셸 명령은 추측해서 실행하지 않고 검증을 중단합니다.
+Claude Code의 실제 평가 사례 생성은 기존 `fixture.sh`를 그대로 사용합니다.
 개발 사례는 보존된 작업 공간에서 다음 명령으로 독립 기능 테스트를 실행합니다.
 
 ```bash
@@ -111,6 +115,9 @@ python3 -B evals/post_eval.py \
 
 `--output`에는 아직 없는 별도 디렉터리를 지정합니다. 원래 결과나 증거 디렉터리 안에는 쓸 수 없습니다.
 원본 파일이나 접근 권한을 변경하지 않으며, 읽을 수 없는 증거는 `INCONCLUSIVE`로 기록합니다.
+JSON·JSONL·매핑·출처 자료와 결과 문서는 UTF-8로 읽고 씁니다.
+네이티브 평가 fixture는 `.gitattributes`로 LF 줄바꿈을 유지하여
+Windows에서도 SHA-256 및 바이트 단위 출처 비교를 변경하지 않습니다.
 실행 결과의 `tracePath`로 전체 기록과 같은 임시 디렉터리의 `sealed/home/cwd`를 찾습니다.
 임시 파일이 이미 정리됐다면 보존한 사본을 `--run-root`로 지정합니다.
 
@@ -166,6 +173,11 @@ JSON은 자동 채점, 독립 검사, 실행 완료 여부, 전체 trace 검사,
 JSON의 `runs`와 `errors`를 함께 확인합니다. 생성된 요약은 원래 LLM 점수를 수정하지 않습니다.
 
 로컬 회귀 검사는 다음과 같이 실행합니다. 모델 호출은 없습니다.
+Windows에서는 설치된 Python 실행기(`python` 또는 `py -3`)를 사용해
+같은 `-B -m unittest discover -s evals/tests -v` 인자를 전달할 수 있습니다.
+심볼릭 링크 생성 권한이 없는 Windows에서는 실제 링크 생성 회귀 검사만
+건너뛰며, 모의 루트·내부 링크 거부와 접근 권한 오류 처리는 항상 검사합니다.
+신뢰되지 않은 생성 코드의 독립 실행은 여전히 macOS `sandbox-exec` 격리가 필요합니다.
 
 ```bash
 python3 -B -m unittest discover -s evals/tests -v
