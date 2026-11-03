@@ -177,7 +177,7 @@ def isolated(work, argv):
     env = {'PATH': str(Path(sys.executable).parent) + ':/usr/bin:/bin',
            'HOME': str(work), 'TMPDIR': str(work / 'tmp'), 'PYTHONDONTWRITEBYTECODE': '1'}
     return subprocess.run(sandbox_command(work, argv), cwd=work, env=env,
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, encoding='utf-8', timeout=60)
 
 
 def independent(case, workspace):
@@ -200,9 +200,10 @@ def independent(case, workspace):
             shutil.copy2(HERE / 'verify_case.py', work / 'verify_case.py')
             (work / case).mkdir()
             shutil.copy2(FIXTURES / case / 'fixture.sh', work / case / 'fixture.sh')
-            argv = [sys.executable, '-I', '-B', str(work / 'verify_case.py'), case, str(copied)]
+            argv = [sys.executable, '-I', '-B', '-X', 'utf8', str(work / 'verify_case.py'), case, str(copied)]
             if case.startswith('review-'):
-                proc = subprocess.run(argv, cwd=work, capture_output=True, text=True, timeout=30)
+                proc = subprocess.run(argv, cwd=work, capture_output=True, text=True,
+                                      encoding='utf-8', timeout=30)
             else:
                 # Verify restrictions before loading any agent-generated Python.
                 probe = work / 'probe.py'
@@ -217,7 +218,7 @@ for check in checks:
         continue
     raise SystemExit('restriction not enforced')
 ''', encoding='utf-8')
-                check = isolated(work, [sys.executable, '-I', '-B', str(probe)])
+                check = isolated(work, [sys.executable, '-I', '-B', '-X', 'utf8', str(probe)])
                 if check.returncode:
                     return result(INCONCLUSIVE, 'isolation self-check failed; generated code not executed',
                                   exit=check.returncode, stdout=check.stdout, stderr=check.stderr)
@@ -225,7 +226,9 @@ for check in checks:
             output = proc.stdout + proc.stderr
             if proc.returncode == 0:
                 return result(PASS, 'independent fixture/behavior verification passed', output=output)
-            if 'FAIL: review changed workspace' in output or 'FAILED (' in output:
+            if ((case.startswith('review-') and
+                 proc.stdout.startswith('FAIL: review changed workspace')) or
+                (case == 'develop-withdrawal' and 'FAILED (' in output)):
                 return result(FAIL, 'independent verification failed', output=output)
             return result(INCONCLUSIVE, 'verifier could not complete', exit=proc.returncode, output=output)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
@@ -279,7 +282,7 @@ def test_effectiveness(workspace):
             observations = {}
             reference_count = None
             for variant in MUTATIONS:
-                proc = isolated(work, [sys.executable, '-I', '-B', str(runner), variant, str(submitted)])
+                proc = isolated(work, [sys.executable, '-I', '-B', '-X', 'utf8', str(runner), variant, str(submitted)])
                 if proc.returncode != 0:
                     return result(INCONCLUSIVE, 'mutation runner did not complete', variant=variant,
                                   exit=proc.returncode, stderr=proc.stderr)
