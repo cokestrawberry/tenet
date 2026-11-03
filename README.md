@@ -1,35 +1,90 @@
 # Tenet
 
-DDD(Domain-Driven Design), TDD(Test-Driven Development), 소프트웨어 설계 원칙을 바탕으로 개발과 코드 검토에 공통으로 적용할 엔지니어링 지침을 만드는 프로젝트입니다.
+DDD(Domain-Driven Design)와 TDD(Test-Driven Development)를 중심으로
+개발과 코드 검토에 공통으로 적용할 수 있는 소프트웨어 엔지니어링 원칙입니다.
 
-## 목표
+Tenet은 코딩 에이전트가 새로운 기능을 만들거나 기존 코드를 수정·리팩터링·검토할 때
+도메인과 사용자 동작을 중심으로 판단하도록 돕는 Skill입니다.
+Claude Code와 Codex에서 사용할 수 있도록 Plugin 구조로 배포합니다.
 
-- 신규 기능 개발, 수정, 리팩터링, 기존 저장소 검토에 동일한 원칙을 적용합니다.
-- 도메인 모델과 비즈니스 규칙을 중심으로 설계하고, 관찰 가능한 동작을 테스트로 보호합니다.
-- 코드와 테스트에 근거하여 판단하며, 특정 아키텍처나 도구를 무조건 강제하지 않습니다.
-- 별도 분석 도구 또는 외부 저장소 없이도 기본 원칙을 적용할 수 있도록 합니다.
+## 핵심 원칙
 
-## 현재 상태
+| 영역 | 원칙 |
+| --- | --- |
+| Domain | 실제 도메인 모델링, 공통 언어, 불변식 보호, 모델 경계 존중 |
+| Testing | 구현 전 동작 정의, Red-Green-Refactor, 관찰 가능한 결과와 실패 검증 |
+| Design | 명시적인 의존성·상태, 추가 전에 단순화 |
+| Evolution | 근거를 통한 안전한 변경 |
 
-초기 구조만 구성된 단계입니다. DDD·TDD 원칙의 최종 목록과 검증 기준은 아직 확정되지 않았습니다. 현재 스킬은 배포 형식과 사용 범위를 확인하기 위한 초안입니다.
+각 원칙의 의미와 개발·검토 기준은 [엔지니어링 원칙](docs/principles.md)에서 설명합니다.
+실제 에이전트 지침은 [SKILL.md](plugins/tenet/skills/tenet/SKILL.md)에 있습니다.
 
-## 구조
+## 설치
 
-- `plugins/tenet/skills/tenet/SKILL.md`: 개발 및 코드 검토에 공통으로 적용하는 스킬 진입점
-- `plugins/tenet/.claude-plugin/plugin.json`: 플러그인 메타데이터
-- `.claude-plugin/marketplace.json`: 플러그인 배포용 Marketplace 메타데이터
-- `.gitignore`: 현재는 비어 있으며, 필요한 제외 규칙이 생기면 추가합니다.
+### Claude Code
 
-## 참고 프로젝트
+```sh
+claude plugin marketplace add cokestrawberry/tenet
+claude plugin install tenet@tenet
+```
 
-- [ub-mode](https://github.com/unclebob/ub-mode): 엔지니어링 원칙 및 개발 작업 규율의 참고 자료
-- [crapper](https://github.com/unclebob/crapper): 복잡도와 테스트 커버리지 기반 품질 평가 참고
-- [dryer](https://github.com/unclebob/dryer): 구조적 중복 분석 참고
-- [mutator](https://github.com/unclebob/mutator): 변이 테스트 참고
-- [uml-viewer](https://github.com/unclebob/uml-viewer): 구조 및 의존성 시각화 참고
+### Codex
 
-현재는 참고 링크만 포함하며, 해당 저장소의 코드나 문서를 복사하지 않았습니다. 외부 도구는 필수 의존성이 아닙니다.
+```sh
+codex plugin marketplace add cokestrawberry/tenet
+codex plugin add tenet@tenet
+```
 
-## 라이선스
+설치 명령은 기존 플러그인의 배포 규칙을 기준으로 작성했습니다.
+Tenet 자체의 최종 설치 검증은 아직 진행하지 않았습니다.
 
-MIT. [LICENSE](LICENSE)를 참조하십시오.
+## 사용법
+
+명령을 실행할 때 작업 유형과 대상 또는 요청을 함께 제공합니다.
+별도 호출 없이 모든 작업에 자동 적용되도록 구성하지 않았습니다.
+
+Claude Code에서 사용하는 예시는 다음과 같습니다.
+
+```text
+/tenet develop 계좌 출금 기능을 TDD로 구현
+/tenet modify 주문 취소 조건을 변경
+/tenet refactor src/orders/ 의 구조를 정리하되 기존 동작 보존
+/tenet review src/orders/
+```
+
+Codex에서는 다음 형식으로 호출합니다.
+
+```text
+$tenet:tenet review src/orders/
+```
+
+개발에서는 기대 동작을 먼저 정의하고 검증하면서 작은 단위로 구현합니다.
+검토에서는 코드와 테스트의 근거를 확인하고, 문제점과 선택적 개선 제안을 구분합니다.
+검토 요청만 받은 경우에는 소스 파일을 수정하지 않습니다.
+
+## 설계 방향
+
+- Entity, Aggregate, Repository와 같은 DDD 패턴을 무조건 요구하지 않습니다.
+- 완성된 코드만으로 과거 개발자가 TDD를 사용했는지 단정하지 않습니다.
+- 외부 분석 도구나 다른 저장소의 체크아웃을 필수로 요구하지 않습니다.
+- 복잡도, 중복도, 커버리지, 변이 테스트의 수치를 단독 판정 기준으로 사용하지 않습니다.
+- 작업 범위를 벗어나는 수정이나 Git 작업을 임의로 수행하지 않습니다.
+
+## 개발 과정 및 검증
+
+- [원본 조사](docs/ub-mode-audit.md)
+- [DDD·TDD Gap Analysis](docs/gap-analysis.md)
+- [엔지니어링 원칙](docs/principles.md)
+- [Evals 및 검증 계획](docs/evaluation.md)
+
+초기 Evals는 개발과 검토에 관한 세 가지 사례를 포함합니다.
+검사 설정을 추가한 단계이며, 모델을 대상으로 실제 실행한 결과를 뜻하지 않습니다.
+
+## 출처 및 라이선스
+
+프로젝트는 [ub-mode](https://github.com/unclebob/ub-mode)에서 출발한 설계 원칙을
+DDD·TDD 관점으로 재구성합니다. 원본 도구인 crapper, dryer, mutator, uml-viewer를
+실행 의존성으로 포함하지 않습니다.
+
+Tenet 자체는 [MIT](LICENSE) 라이선스로 제공됩니다.
+참고한 원본의 저작권·라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 확인하십시오.
