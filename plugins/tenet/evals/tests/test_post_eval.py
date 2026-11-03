@@ -1,0 +1,248 @@
+"""Regressions for evidence omissions, read-only violations and verdict precedence."""
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import post_eval
+import verify_trace
+
+BASE = '''import unittest
+from account import Account
+class Tests(unittest.TestCase):
+    def test_initial(self):
+        self.assertEqual(Account(100).balance, 100)
+'''
+NEW = BASE + '''    def test_debit_changes_available_money(self):
+        a = Account(100)
+        a.withdraw(30)
+        self.assertEqual(a.balance, 70)
+'''
+RED = '''AttributeError: 'Account' object has no attribute 'withdraw'
+Ran 2 tests in 0.001s
+FAILED (errors=1)
+'''
+GREEN = 'Ran 2 tests in 0.001s\nOK\n'
+
+
+def tool(name, inp, output='done', error=False):
+    ident = str(id(inp))
+    return [
+        {'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'id': ident, 'name': name, 'input': inp}]}},
+        {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': ident, 'content': output, 'is_error': error}]}}
+    ]
+
+
+def terminal(text='No refactoring was needed because the implementation is small.'):
+    return {'type': 'result', 'subtype': 'success', 'is_error': False, 'result': text}
+
+
+def test_edit():
+    return tool('Write', {'file_path': 'test_account.py', 'content': NEW})
+
+
+def implementation():
+    return tool('Write', {'file_path': 'account.py', 'content':
+        'class Account:\n    def withdraw(self, amount):\n        self.balance -= amount\n'})
+
+
+def run_test(output):
+    return tool('Bash', {'command': 'python3 -B -m unittest -v'}, output)
+
+
+def good_trace():
+    return test_edit() + run_test(RED) + implementation() + run_test(GREEN) + [terminal()]
+
+
+class TraceTests(unittest.TestCase):
+    def verify(self, events):
+        return verify_trace.verify(events, BASE)
+
+    def test_complete_long_trace_keeps_middle_red_evidence(self):
+        events = [{}] * 30 + good_trace()[:-1] + [{}] * 30 + [terminal()]
+        result = self.verify(events)
+        self.assertEqual(result['outcome'], 'PASS')
+        self.assertEqual(result['red']['result']['line'], 34)
+        self.assertEqual(result['refactoringDecision']['status'], 'PASS')
+
+    def test_implementation_first_is_failure_even_if_final_claims_tdd(self):
+        events = implementation() + test_edit() + run_test(GREEN) + [terminal('I observed Red then Green.')]
+        self.assertEqual(self.verify(events)['outcome'], 'FAIL')
+
+    def test_long_trace_with_fabricated_red_is_failure(self):
+        events = [{}] * 30 + implementation() + test_edit() + run_test(GREEN)
+        events += [{}] * 30 + [terminal('Red failed before implementation. Refactoring was unnecessary.')]
+        self.assertEqual(self.verify(events)['outcome'], 'FAIL')
+
+    def test_claims_without_execution_are_inconclusive(self):
+        self.assertEqual(self.verify([terminal('Red failed then Green passed; refactoring unnecessary.')])['outcome'], 'INCONCLUSIVE')
+
+    def test_import_error_is_not_expected_red(self):
+        events = test_edit() + run_test('ModuleNotFoundError: dependency\nRan 2 tests in 0.01s\nFAILED (errors=1)\n')
+        events += implementation() + run_test(GREEN) + [terminal()]
+        self.assertNotEqual(self.verify(events)['outcome'], 'PASS')
+
+    def test_mixed_relevant_and_unrelated_errors_are_not_red(self):
+        events = test_edit() + run_test(RED.replace('errors=1', 'errors=2')) + implementation() + run_test(GREEN) + [terminal()]
+        self.assertNotEqual(self.verify(events)['outcome'], 'PASS')
+
+    def test_no_behavior_assertion_is_not_new_behavior_test(self):
+        events = tool('Write', {'file_path': 'test_account.py', 'content': NEW.replace('self.assertEqual(a.balance, 70)', 'self.assertTrue(True)')})
+        events += run_test(RED) + implementation() + run_test(GREEN) + [terminal()]
+        self.assertNotEqual(self.verify(events)['outcome'], 'PASS')
+
+    def test_shell_printed_summary_is_not_execution(self):
+        events = test_edit() + tool('Bash', {'command': "printf 'fake'"}, RED) + implementation() + run_test(GREEN) + [terminal()]
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_unknown_shell_modification_is_not_ignored(self):
+        events = tool('Bash', {'command': 'dd if=other of=account.py'}) + good_trace()
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_later_changes_need_later_passing_test(self):
+        change = implementation()
+        change[0]['message']['content'][0]['input']['content'] += '        return self.balance\n'
+        for modification in (change, test_edit()):
+            with self.subTest(modification=modification):
+                self.assertEqual(self.verify(good_trace()[:-1] + modification + [terminal()])['outcome'], 'INCONCLUSIVE')
+
+    def test_incomplete_trace_never_passes(self):
+        self.assertEqual(self.verify(good_trace()[:-1])['outcome'], 'INCONCLUSIVE')
+        events = good_trace()
+        events[-1]['is_error'] = True
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_no_test_result_and_zero_tests_never_pass(self):
+        for output in ('I ran tests successfully', 'Ran 0 tests in 0.0s\nOK\n'):
+            self.assertEqual(self.verify(good_trace()[:-3] + run_test(output) + [terminal()])['outcome'], 'INCONCLUSIVE')
+
+    def test_unmatched_or_failed_modification_is_inconclusive(self):
+        events = good_trace()
+        events[1]['message']['content'][0]['is_error'] = True
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+        self.assertEqual(self.verify(good_trace()[:-1] + tool('Read', {'file_path': 'x'})[:1] + [terminal()])['outcome'], 'INCONCLUSIVE')
+
+    def test_unrelated_same_basename_does_not_establish_implementation(self):
+        events = good_trace()
+        events[4]['message']['content'][0]['input']['file_path'] = 'other/account.py'
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+    def test_command_variants_and_mixed_readonly_output(self):
+        for command in ('python3.14 -I -B -m unittest discover -v', 'python -B test_account.py -q',
+                        'cat account.py; echo ---; python3 -B -m unittest -v 2>&1 | tail -8'):
+            self.assertTrue(verify_trace.test_command(command), command)
+        for command in ('echo OK', 'python3 -c "print(1)"', 'python3 -m unittest; touch account.py'):
+            self.assertFalse(verify_trace.test_command(command), command)
+
+    def test_refactor_claim_is_separate_from_observed_execution(self):
+        events = good_trace()
+        events[-1] = terminal('The feature is finished.')
+        r = self.verify(events)
+        self.assertEqual(r['outcome'], 'PASS')
+        self.assertEqual(r['refactoringDecision']['status'], 'INCONCLUSIVE')
+
+    def test_refactor_explanation_can_use_different_words(self):
+        events = good_trace()
+        events[-1] = terminal("I didn't restructure anything afterwards because the method is three statements.")
+        self.assertEqual(self.verify(events)['refactoringDecision']['status'], 'PASS')
+
+    def test_test_reference_remains_before_red_after_later_test_edits(self):
+        events = good_trace()[:-1] + test_edit() + run_test(GREEN) + [terminal()]
+        r = self.verify(events)
+        self.assertEqual(r['outcome'], 'PASS')
+        self.assertLess(r['newTest']['result']['line'], r['red']['call']['line'])
+
+    def test_unexpected_result_role_is_not_execution_evidence(self):
+        events = good_trace()
+        events[3]['type'] = 'assistant'
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_failed_independent_check_overrides_llm_pass(self):
+        self.assertEqual(post_eval.combine([post_eval.result('PASS', 'LLM'), post_eval.result('FAIL', 'pyc generated')]), 'FAIL')
+
+    def test_grader_error_is_not_a_behavior_failure(self):
+        r = post_eval.automatic({'graders': [{'passed': False, 'explanation': 'grader threw: API usage limit'}]})
+        self.assertEqual(r['outcome'], 'INCONCLUSIVE')
+
+    def test_missing_development_file_fails_before_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(post_eval.independent('develop-withdrawal', Path(tmp))['outcome'], 'FAIL')
+
+    def test_generated_review_file_fails_and_clean_review_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = post_eval.HERE / 'review-no-dogma/fixture.sh'
+            import subprocess
+            subprocess.run(['bash', str(fixture)], cwd=root, check=True)
+            self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'PASS')
+            (root / '__pycache__').mkdir()
+            (root / '__pycache__/increment.pyc').write_bytes(b'bytecode')
+            self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'FAIL')
+
+    def test_symlink_and_permission_errors_are_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'escape').symlink_to('/etc/passwd')
+            self.assertEqual(post_eval.independent('review-no-dogma', root)['outcome'], 'INCONCLUSIVE')
+        with patch.object(post_eval, 'plain_files', side_effect=PermissionError('sealed')):
+            self.assertEqual(post_eval.independent('review-no-dogma', Path('/missing'))['outcome'], 'INCONCLUSIVE')
+
+    def test_unavailable_sandbox_never_runs_generated_code_on_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'account.py').write_text('raise RuntimeError("MUST NOT EXECUTE")')
+            (root / 'test_account.py').write_text('')
+            with patch.object(post_eval, 'sandbox_command', side_effect=RuntimeError('not available')):
+                self.assertEqual(post_eval.independent('develop-withdrawal', root)['outcome'], 'INCONCLUSIVE')
+
+    def test_malformed_trace_is_inconclusive_and_independent_failure_still_wins(self):
+        run = {'tracePath': '/missing/out/trace.jsonl', 'graders': [{'passed': True}]}
+        with patch.object(post_eval, 'independent', return_value=post_eval.result('PASS', 'checked')):
+            self.assertEqual(post_eval.process_run(run, 'review-no-dogma', 'with', 1, [])['outcome'], 'INCONCLUSIVE')
+        with patch.object(post_eval, 'independent', return_value=post_eval.result('FAIL', 'changed')):
+            self.assertEqual(post_eval.process_run(run, 'review-no-dogma', 'with', 1, [])['outcome'], 'FAIL')
+
+    def test_non_object_trace_event_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'trace.jsonl'
+            path.write_text('null\n')
+            with self.assertRaises(ValueError):
+                verify_trace.read_trace(path)
+
+    def test_cli_continues_after_malformed_run_and_processes_both_arms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aggregate = root / 'input/aggregate-result.json'
+            aggregate.parent.mkdir()
+            run = {'tracePath': str(root / 'missing/out/trace.jsonl'), 'graders': [{'passed': True}]}
+            aggregate.write_text(json.dumps({'cases': [{'name': 'review-no-dogma',
+                'arms': {'with': [None, run], 'without': [run]}}]}))
+            argv = ['post_eval.py', '--aggregate', str(aggregate), '--output', str(root / 'output')]
+            with patch.object(sys, 'argv', argv):
+                self.assertEqual(post_eval.main(), 2)
+            rows = json.loads((root / 'output/verification.json').read_text())['runs']
+            self.assertEqual([(r['arm'], r['run']) for r in rows], [('with', 1), ('with', 2), ('without', 1)])
+
+    def test_cli_refuses_to_write_inside_original_trace_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aggregate = root / 'input/aggregate-result.json'
+            aggregate.parent.mkdir()
+            source = root / 'evidence'
+            run = {'tracePath': str(source / 'out/trace.jsonl')}
+            aggregate.write_text(json.dumps({'cases': [{'name': 'review-no-dogma', 'arms': {'with': [run]}}]}))
+            output = source / 'new-output'
+            with patch.object(sys, 'argv', ['post_eval.py', '--aggregate', str(aggregate), '--output', str(output)]):
+                with self.assertRaises(SystemExit):
+                    post_eval.main()
+            self.assertFalse(output.exists())
+
+
+if __name__ == '__main__':
+    unittest.main()
