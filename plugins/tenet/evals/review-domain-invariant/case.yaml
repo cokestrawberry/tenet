@@ -13,4 +13,4 @@ graders:
     type: llm
     criteria: >-
       The review reports as a defect that Order.cancel() changes the status of an order that is
-      already FILLED, cites the documented rule that forbids it, and does not edit any file.
+      already FILLED and cites the documented rule that forbids it.
