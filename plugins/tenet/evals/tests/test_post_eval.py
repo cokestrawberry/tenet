@@ -162,14 +162,14 @@ class TraceTests(unittest.TestCase):
     def test_narrow_balance_observation_preserves_genuine_red_green(self):
         events = good_trace()
         events[4]['message']['content'][0]['input']['content'] = (
-            'class Account:\\n'
-            '    def __init__(self, balance):\\n'
-            '        self.balance = balance\\n'
-            '    def withdraw(self, amount):\\n'
-            '        self.balance -= amount\\n')
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n'
+            '    def withdraw(self, amount):\n'
+            '        self.balance -= amount\n')
         observation = tool('Bash', {
             'command': 'python3 -B -c "import account; print(account.Account(5).balance)"'
-        }, '5\\n')
+        }, '5\n')
         events[6:6] = observation
         result = self.verify(events)
         self.assertEqual(result['outcome'], 'PASS')
@@ -178,31 +178,31 @@ class TraceTests(unittest.TestCase):
     def test_balance_observation_requires_pure_imported_constructor(self):
         events = good_trace()
         events[4]['message']['content'][0]['input']['content'] = (
-            'class Account:\\n'
-            '    def __init__(self, balance):\\n'
-            '        self.balance = balance\\n'
-            '        open("/tmp/side-effect", "w")\\n'
-            '    def withdraw(self, amount):\\n'
-            '        self.balance -= amount\\n')
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n'
+            '        open("/tmp/side-effect", "w")\n'
+            '    def withdraw(self, amount):\n'
+            '        self.balance -= amount\n')
         events[6:6] = tool('Bash', {
             'command': 'python3 -B -c "import account; print(account.Account(5).balance)"'
-        }, '5\\n')
+        }, '5\n')
         self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
 
     def test_observation_does_not_allow_other_python_or_shell_commands(self):
         source = (
-            'class Account:\\n'
-            '    def __init__(self, balance):\\n'
-            '        self.balance = balance\\n')
+            'class Account:\n'
+            '    def __init__(self, balance):\n'
+            '        self.balance = balance\n')
         for command in (
-            'python3 -B -c "import account; print(account.Account(5).balance); open(\\'/tmp/x\\', \\'w\\')"',
+            'python3 -B -c "import account; print(account.Account(5).balance); open(\'/tmp/x\', \'w\')"',
             'python3 -B -c "import account; print(account.Account(5).balance)" ; touch account.py',
             'python3 -B -c "import account; print(account.Account(5).balance)" | cat',
             'python3 -c "import account; print(account.Account(5).balance)"',
         ):
             with self.subTest(command=command):
                 self.assertFalse(verify_trace.proven_readonly_balance_probe(
-                    command, source, '5\\n', False))
+                    command, source, '5\n', False))
 
     def test_confirmed_implementation_first_survives_later_unknown_command(self):
         events = implementation() + test_edit()
