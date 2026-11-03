@@ -50,7 +50,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as root:
         expected = pathlib.Path(root)
-        originals = fixture_files(fixture)
+        originals = {pathlib.Path(name): data for name, data in fixture_files(fixture).items()}
         for name, data in originals.items():
             (expected / name).write_bytes(data)
         if args.case.startswith("review-"):
