@@ -1,33 +1,111 @@
-# Tenet 평가 계획
+# Tenet 평가 실행 및 검증
 
-## 평가 목표
+## 목표
 
-같은 원칙이 개발과 검토에서 일관되게 적용되는지 확인합니다.
-현재 구성은 Claude Code의 Plugin Eval(에이전트 동작 평가) 형식을 따르는 초기 테스트 사례입니다.
-실제 모델 실행 결과가 확인되기 전에는 통과했다고 간주하지 않습니다.
+개발 및 코드 검토에서 Tenet의 동작을 평가하고, 채점기의 오판을 탐지합니다.
+현재 사례는 세 개이며, **점수만으로 기능 정확성이나 읽기 전용 준수를 확정하지 않습니다.**
 
-| 사례 | 작업 | 확인할 행동 |
-| --- | --- | --- |
-| `review-domain-invariant` | 검토 | 체결 주문을 취소할 수 있는 구현상의 문제 발견 |
-| `review-no-dogma` | 검토 | 단순 함수에 불필요한 도메인 계층이나 설계 패턴을 요구하지 않는지 확인 |
-| `develop-withdrawal` | 개발 | 출금 기능과 정상·실패 조건의 테스트 추가 |
+| 사례 | 검증 목표 |
+| --- | --- |
+| `review-domain-invariant` | 문서화된 FILLED 주문 취소 금지 규칙을 근거로 결함 보고 |
+| `review-no-dogma` | 단순 함수에 불필요한 DDD 패턴을 강제하지 않음 |
+| `develop-withdrawal` | 출금의 정확성, 실패 테스트 선행, 통과 및 리팩터링 판단 |
 
-## 실행
+## 실행 조건
 
-저장소 루트에서 Claude Code Plugin Eval을 지원하는 버전으로 실행합니다.
+Claude Code 2.1.310에서 확인한 `plugin eval` 명령 옵션을 사용합니다.
+저장소 루트에서 실행하며 Python 3와 모델 호출 권한이 필요합니다.
+플러그인 출처 및 fixture를 확인한 뒤, 신뢰할 수 있는 실행에서만 `--trust-plugin`을 사용합니다.
+비대화형 환경에서는 해당 옵션이 없으면 신뢰 확인 과정에서 실패할 수 있습니다.
+`--allow-tools`는 **선택한 모든 사례에 적용**되므로 검토와 개발을 반드시 분리합니다.
+
+### 읽기 전용 검토 사례
 
 ```bash
-claude plugin eval plugins/tenet --scaffold --allow-tools Bash Write Edit --no-publish
+CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \
+  --case 'review-*' --scaffold --no-publish --trust-plugin \
+  --model claude-opus-5-5 --judge-model haiku --runs 3 \
+  --ablation with-without --keep-temp \
+  --output-dir "$PWD/../tenet-eval-results/review"
 ```
 
-이 명령은 모델 호출 비용이 발생할 수 있습니다. 도구 권한과 샌드박스 실행 가능
-여부는 테스트 환경에서 확인해야 합니다. 위 명령을 아직 실행하지 않았습니다.
+이 실행에는 `--allow-tools Bash Write Edit`를 **추가하지 않습니다**.
+검토 사례의 `allowed_tools`에 명시된 읽기 도구만 사용해야 하며, 실제 도구 목록을 trace로 확인합니다.
 
-## 평가 범위와 한계
+### 개발 사례
 
-- LLM 평가기는 모델 응답의 의미와 지적의 타당성을 평가합니다. 정규식 검사는 결과 파일에 메서드, 테스트, 예외 검증 코드가 있는지만 확인하며 테스트 통과 여부는 확인하지 않습니다.
-- 테스트가 실제로 Red-Green-Refactor 순서로 작성되었는지는 결과 파일만으로 알 수 없습니다.
-- 실행 로그, 테스트 결과, 불필요한 변경 여부를 함께 검토해야 합니다.
-- 원칙 준수 여부의 평가에서는 테스트 기준이 모델의 표현 방식에 과적합되지 않도록 주의합니다.
-- 검토 사례는 파일을 변경할 수 있는 도구를 제공하지 않습니다.
-- 향후 사례를 확장할 때는 버그 수정, 레거시 리팩터링, 여러 도메인 모델 경계에 걸친 변경도 포함합니다.
+```bash
+CLAUDE_CODE_EFFORT_LEVEL=high claude plugin eval plugins/tenet \
+  --case develop-withdrawal --scaffold --allow-tools Bash Write Edit \
+  --no-publish --trust-plugin --model claude-opus-5-5 \
+  --judge-model haiku --runs 3 --ablation with-without \
+  --keep-temp --output-dir "$PWD/../tenet-eval-results/develop"
+```
+
+`--model`과 `--judge-model`은 각기 에이전트와 채점 모델을 지정합니다.
+`CLAUDE_CODE_EFFORT_LEVEL`은 현재 실행 프로세스에만 적용합니다.
+`--ablation with-without`은 사례별 Tenet 적용/미적용 양쪽을 실행하므로
+세 사례에 `--runs 3`을 적용하면 총 18회의 에이전트 실행이 발생합니다.
+미적용 arm은 설치되지 않은 `/tenet` 명령을 일반 문자열로 받을 수 있습니다.
+이는 독립적인 일반 작업 프롬프트와 다르므로 비교 해석 시 명시합니다.
+실행 결과와 임시 작업 공간은 Git 추적 밖의 지정한 경로에 보관합니다.
+
+## 결과의 독립 검증
+
+실제 결과 디렉터리에서 각 회차의 작업 공간과 trace를 찾아 검사합니다.
+Claude Code 2.1.310의 `--keep-temp` 결과에서는 회차별 `sealed/home/cwd`에
+작업 공간이 보관될 수 있습니다. 실제 경로는 CLI 출력과 결과 메타데이터로 확인합니다.
+보존 디렉터리는 접근을 제한할 수 있으므로 CLI가 안내한 **해당 평가 디렉터리만**
+`chmod 700`으로 열고, 원본 권한과 경로를 먼저 기록합니다.
+읽을 수 없는 경로를 찾지 못한 경로와 혼동하지 않습니다.
+
+평가 에이전트가 생성한 코드는 신뢰할 수 없습니다. 개발 사례의 독립 검증은
+에이전트가 작성한 `account.py`를 실제로 실행하므로 **호스트에서 바로 실행하지 않고**,
+네트워크와 외부 자원 접근을 차단한 별도 격리 환경에서 수행합니다.
+해당 격리를 마련할 수 없다면 실행 검증을 생략하고 `판단 불가`로 기록합니다.
+
+검토 사례는 fixture 밖의 새 파일이나 기존 파일 변경이 없는지 확인합니다.
+Python의 `__pycache__` 같은 생성 파일도 읽기 전용 위반으로 취급합니다.
+개발 사례는 보존된 작업 공간에서 다음 명령으로 독립 기능 테스트를 실행합니다.
+
+```bash
+python3 plugins/tenet/evals/verify_case.py develop-withdrawal /path/to/eval/workspace
+```
+
+검토 사례에도 같은 도구를 적용할 수 있습니다.
+
+```bash
+python3 plugins/tenet/evals/verify_case.py review-domain-invariant /path/to/eval/workspace
+python3 plugins/tenet/evals/verify_case.py review-no-dogma /path/to/eval/workspace
+```
+
+검증 도구는 **이미 보존된 작업 공간에만** 적용합니다. 단일 평가의 자동 grader에
+추가 연결된 것은 아니므로, 모든 회차에 실행하고 결과를 별도로 기록해야 합니다.
+Trace 기반 LLM grader는 Red→Green의 실제 순서와 리팩터링 판단을 평가하려고
+시도하지만, Claude Code 2.1.310에서 trace가 24개 메시지를 넘으면 **처음 12개와
+마지막 12개만** 채점 입력에 포함되고 중간은 생략될 수 있습니다.
+따라서 각 회차의 결과 JSON에서 `trace_path`를 찾아 전체 `trace.jsonl`을 별도로
+검토하고, 테스트 추가·기대한 실패 실행·구현 변경·최종 통과 실행의 순서와 출력을 확인합니다.
+24개 메시지를 초과해 필요한 근거가 채점 입력에서 누락될 수 있는 회차는 두 trace 기반
+grader의 판정을 **단독 증거로 인정하지 않고 `판단 불가`로** 표시합니다.
+전체 trace에 근거한 별도의 검증 결과와 grader 결과를 구분해 기록합니다.
+실제 파일 변경 여부는 trace만으로 보증하지 않고 독립 검증 결과를 우선합니다.
+
+## 현재 한계 및 추가 평가 대상
+
+- `develop-withdrawal`은 저장소 내부에 테스트 파일을 생성하는 상황이므로,
+  저장소 밖 테스트의 지속성 안내(PR #9)는 아직 검증하지 못합니다.
+- 실제 구현의 변이 테스트 탐지 능력을 자동으로 평가하지 않습니다.
+- 간단한 불변식 fixture는 미적용 모델도 통과할 수 있습니다. 더 복잡한
+  요구사항/호출 경로 사례를 추가하기 전까지 점수 차이를 일반화하지 않습니다.
+- `--trust-plugin`은 검토한 플러그인에 대한 실행 시 신뢰 확인을 생략합니다.
+  도구 권한 자체를 완화하는 용도로 사용하지 않습니다.
+- 보고서에 에이전트 비용과 judge 비용이 분리되어 있으면 합산한 총비용을 기록합니다.
+  judge 모델의 실제 버전이 결과에 없으면 명령으로 선택한 이름만 기록합니다.
+- 설치된 CLI의 옵션 지원 범위와 샌드박스 설정을 실제 실행 환경에서 재확인해야 합니다.
+
+## 품질 판정
+
+평가 결과는 `유효 통과`, `유효 실패`, `오탐 통과`, `정상 동작 오판`,
+`판단 불가`로 구분합니다. 특히 읽기 전용 위반, 허위 근거, 기능 실패,
+Red 없는 구현이 단순 문자열 검사만으로 통과하는지 별도로 확인합니다.

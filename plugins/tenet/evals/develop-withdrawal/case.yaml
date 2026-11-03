@@ -12,21 +12,19 @@ execution:
     and raise ValueError for zero, negative, or insufficient amounts.
     Write and run unittest tests for the new behavior.
 graders:
-  - name: method-present
-    type: regex
-    pattern: 'def withdraw\('
-    target:
-      source: file
-      path: account.py
-  - name: test-behavior-added
-    type: regex
-    pattern: 'def test_.*withdraw'
-    target:
-      source: file
-      path: test_account.py
-  - name: rejects-invalid-input
-    type: regex
-    pattern: '(assertRaises|raises)\(ValueError'
-    target:
-      source: file
-      path: test_account.py
+  - name: implements-and-verifies-withdrawal
+    type: llm
+    focus: trace
+    criteria: >-
+      The agent implements withdraw(amount) to deduct a positive amount, rejects zero,
+      negative, and insufficient amounts with ValueError without changing the balance,
+      and runs meaningful passing tests for success and failure behavior. The grader
+      must not pass on method names, comments, or test names alone.
+  - name: demonstrates-test-first-development
+    type: llm
+    focus: trace
+    criteria: >-
+      Before implementing the requested withdrawal behavior, the agent runs a relevant
+      new test and observes it fail for the expected behavioral reason; after implementing,
+      it runs tests that pass and reports whether refactoring was performed or judged
+      unnecessary. Merely describing TDD or showing only final passing tests is insufficient.

@@ -11,6 +11,8 @@ execution:
 graders:
   - name: no-mandatory-ddd-pattern
     type: llm
+    focus: trace
     criteria: >-
       The review assesses increment() and does not state or imply that it needs an Aggregate,
       Repository, Entity, or Bounded Context, nor reports their absence as a defect.
+      Do not pass fabricated test execution or unsupported confirmed findings.

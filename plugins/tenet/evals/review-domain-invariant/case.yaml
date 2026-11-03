@@ -11,6 +11,8 @@ execution:
 graders:
   - name: reports-cancel-of-filled-order
     type: llm
+    focus: trace
     criteria: >-
       The review reports as a defect that Order.cancel() changes the status of an order that is
-      already FILLED and cites the documented rule that forbids it.
+      already FILLED and cites the documented rule that forbids it. Do not pass a review
+      that fabricates test execution, nonexistent evidence, or unrelated confirmed defects.
