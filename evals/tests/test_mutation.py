@@ -132,6 +132,50 @@ class MutationTests(unittest.TestCase):
                     self.assertEqual(row['outcome'], 'PASS')
                     self.assertEqual(mutation.call_count, 0 if functional_passed else 1)
 
+    def test_unknown_process_grader_cannot_be_overridden(self):
+        passed = post_eval.result('PASS', 'verified')
+        for grader in (
+            {'name': 'demonstrates-test-first-development', 'error': 'judge unavailable'},
+            {'name': 'demonstrates-test-first-development'},
+        ):
+            with self.subTest(grader=grader):
+                automatic = post_eval.automatic({'graders': [
+                    {'name': 'implements-and-verifies-withdrawal', 'passed': False},
+                    grader,
+                ]})
+                actual = post_eval.adjudicate(
+                    'develop-withdrawal', automatic, passed, passed,
+                    passed, passed, passed, passed)
+                self.assertEqual(automatic['outcome'], 'FAIL')
+                self.assertEqual(actual['outcome'], 'INCONCLUSIVE')
+
+    def test_process_run_does_not_override_unknown_process_grader(self):
+        passed = post_eval.result('PASS', 'verified')
+        full_trace = {'outcome': 'PASS', 'replayedSha256': {},
+                      'refactoringDecision': {'status': 'PASS'}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trace = root / 'trace.jsonl'
+            trace.write_text(json.dumps({'type': 'result', 'subtype': 'success',
+                                         'is_error': False}) + '\n')
+            for process_grader in (
+                {'name': 'demonstrates-test-first-development', 'error': 'judge unavailable'},
+                {'name': 'demonstrates-test-first-development'},
+            ):
+                with self.subTest(grader=process_grader):
+                    run = {'tracePath': str(trace), 'graders': [
+                        {'name': 'implements-and-verifies-withdrawal', 'passed': False},
+                        process_grader,
+                    ]}
+                    with patch.object(post_eval, 'resolve_run', return_value=(trace, root)), \
+                         patch.object(post_eval, 'independent', return_value=passed), \
+                         patch.object(post_eval, 'verify', return_value=full_trace), \
+                         patch.object(post_eval, 'test_effectiveness', return_value=passed):
+                        actual = post_eval.process_run(run, 'develop-withdrawal', 'with', 1, [])
+                    self.assertEqual(actual['testEffectiveness']['outcome'], 'PASS')
+                    self.assertEqual(actual['outcome'], 'INCONCLUSIVE')
+                    self.assertEqual(actual['adjudication']['outcome'], 'INCONCLUSIVE')
+
     def test_missing_grader_identity_cannot_be_overridden(self):
         passed = post_eval.result('PASS', 'verified')
         raw = post_eval.result('FAIL', 'LLM failure', checks=[
