@@ -174,6 +174,52 @@ TENET_POSTFIX_EVAL=/path/to/postfix-evaluation \
 python3 -B -m unittest discover -s plugins/tenet/evals/tests -v
 ```
 
+### 보충 Probe의 검증 및 판정
+
+원래 사례가 아닌 별도 Probe 이름을 검증하려면 해당 Probe의 `fixture.sh`가
+원래 사례의 Fixture와 **바이트 단위로 일치**한다는 근거를 명시합니다.
+JSON 매핑의 키는 평가 결과의 사례 이름이며, 각 항목의 `case`는 원래 세 사례 중 하나입니다.
+`fixtureSha256`은 `fixturePath`에 있는 파일의 SHA-256 값입니다.
+
+```json
+{
+  "probe-dev-long-honest-red": {
+    "case": "develop-withdrawal",
+    "fixturePath": "/path/to/probe/fixture.sh",
+    "fixtureSha256": "<64-character SHA-256 digest>"
+  }
+}
+```
+
+`fixturePath`의 파일과 SHA-256을 모두 확인하고 원래 Fixture와 내용이 같을 때만
+해당 사례로 검증합니다. 검증되지 않은 매핑은 `INCONCLUSIVE`입니다.
+평가 증거의 복사본이 기존 원본과 일치한다는 사실까지 이 매핑이 증명하지는 않습니다.
+전체 Trace의 경로와 보존본의 출처도 종전 방식으로 별도 확인합니다.
+
+```bash
+python3 -B plugins/tenet/evals/post_eval.py \
+  --aggregate /path/to/supplement/aggregate-result.json \
+  --run-root /path/to/preserved-runs \
+  --case-map /path/to/probe-case-map.json \
+  --output /path/to/new-verification
+```
+
+`automatic`은 원래 LLM 채점 결과로 보존되고 `adjudication`에 별도 판단 근거가 남습니다.
+기능 및 과정 Grader의 구분이 확인되고 기능 채점이 통과했으며,
+전체 Trace·독립 행동 검사·실행 완료·파일 재현·리팩터링 보고가 모두
+통과한 경우에만 **과정 Grader의 실패**를 독립 증거로 교정할 수 있습니다.
+기능 Grader의 실패는 독립 검사 범위보다 넓을 수 있으므로 자동 통과로 교정하지 않습니다.
+
+기존 LLM의 실패와 독립 증거가 충돌하지만 전체 Trace가 `INCONCLUSIVE`인 경우에는
+확정 실패로 단정하지 않고 `INCONCLUSIVE`로 기록합니다.
+반면 독립 행동 또는 과정 검증에서 확정된 실패는 항상 `FAIL`입니다.
+검토의 내용 품질은 파일 불변 검사만으로 증명할 수 없으므로 LLM 실패를 덮어쓰지 않습니다.
+
+임의 Python `-c` 실행은 import 부작용으로 파일을 변경할 수 있어
+현재 과정 검증에서 읽기 전용으로 인정하지 않습니다.
+따라서 해당 실행을 포함하는 보충 Trace는 여전히 판단 불가일 수 있습니다.
+이는 원래 LLM 채점 오류가 해결되었다는 뜻이 아닙니다.
+
 ## 현재 한계 및 추가 평가 대상
 
 - `develop-withdrawal`은 저장소 내부에 테스트 파일을 생성하는 상황이므로,
