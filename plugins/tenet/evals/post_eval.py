@@ -123,6 +123,8 @@ def independent(case, workspace):
             copied = work / 'workspace'
             copied.mkdir()
             for name, data in files.items():
+                if case == 'develop-withdrawal' and name != 'account.py':
+                    continue
                 target = copied / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)

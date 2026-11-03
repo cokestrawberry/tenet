@@ -18,12 +18,16 @@ def content_text(content):
 
 
 def test_command(command):
-    """Accept unittest runners plus non-writing output filters, not arbitrary shell code."""
-    parts = shell_parts(command)
-    if parts is None:
+    """Require one runner whose output and exit status belong to that runner alone."""
+    # Pipelines lose the runner's exit status; compound commands can add saved output.
+    # Only merging stderr into stdout is understood. Never discard stderr evidence.
+    command = command.replace('2>&1', '')
+    if any(x in command for x in ('`', '$', '\n', '<', '>', '|', ';', '&')):
         return False
-    runners = [p for p in parts if unittest_runner(p)]
-    return len(runners) == 1 and all(unittest_runner(p) or read_command(p) for p in parts)
+    try:
+        return unittest_runner(shlex.split(command))
+    except ValueError:
+        return False
 
 
 def shell_parts(command):
@@ -203,7 +207,7 @@ def verify(events, fixture_tests, fixture_code='class Account:\n    def __init__
                     ok = bool(re.search(r'^OK\s*$', output, re.M))
                     failed = bool(re.search(r'^FAILED \([^\n]+\)\s*$', output, re.M))
                     action['observed'] = PASS if len(runs) == 1 and ok and not failed and not block.get('is_error') else (
-                        FAIL if len(runs) == 1 and failed and not ok else INCONCLUSIVE)
+                        FAIL if len(runs) == 1 and failed and not ok and block.get('is_error') else INCONCLUSIVE)
                     if action['observed'] == INCONCLUSIVE:
                         uncertain.append({'reason': 'test output has no unambiguous runner result', 'event': ref})
                     if action['observed'] == FAIL and test_change and not implementation:

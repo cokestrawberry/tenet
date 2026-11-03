@@ -33,6 +33,10 @@ class PreservedRunTests(unittest.TestCase):
                             before = (hashlib.sha256(trace.read_bytes()).digest(), post_eval.plain_files(workspace))
                             result = post_eval.process_run(run, case['name'], arm, number, roots)
                             expected = 'PASS'
+                            # The archived Tenet runs use pipelines/compound commands;
+                            # their unittest exit status cannot be recovered reliably.
+                            if case['name'] == 'develop-withdrawal' and arm == 'with':
+                                expected = 'INCONCLUSIVE'
                             if previous:
                                 if case['name'] == 'develop-withdrawal' and arm == 'without':
                                     expected = 'FAIL'

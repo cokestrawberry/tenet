@@ -51,7 +51,7 @@ def implementation():
 
 
 def run_test(output):
-    return tool('Bash', {'command': 'python3 -B -m unittest -v'}, output)
+    return tool('Bash', {'command': 'python3 -B -m unittest -v'}, output, error='FAILED (' in output)
 
 
 def good_trace():
@@ -131,12 +131,33 @@ class TraceTests(unittest.TestCase):
         events[4]['message']['content'][0]['input']['file_path'] = 'other/account.py'
         self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
 
-    def test_command_variants_and_mixed_readonly_output(self):
+    def test_direct_command_variants_preserve_runner_status(self):
         for command in ('python3.14 -I -B -m unittest discover -v', 'python -B test_account.py -q',
-                        'cat account.py; echo ---; python3 -B -m unittest -v 2>&1 | tail -8'):
+                        'python3 -B -m unittest -v 2>&1'):
             self.assertTrue(verify_trace.test_command(command), command)
-        for command in ('echo OK', 'python3 -c "print(1)"', 'python3 -m unittest; touch account.py'):
+        for command in ('echo OK', 'python3 -c "print(1)"', 'python3 -m unittest; touch account.py',
+                        'cat account.py; python3 -m unittest', 'python3 -m unittest && cat saved-ok.log',
+                        'python3 -m unittest 2>/dev/null', 'python3 -m unittest 2>&1 | tail -8'):
             self.assertFalse(verify_trace.test_command(command), command)
+
+    def test_saved_success_output_cannot_supply_green(self):
+        for command in ('python3 -B -m unittest -v 2>/dev/null; cat saved-ok.log',
+                        'python3 -B -m unittest -v; cat saved-ok.log',
+                        'python3 -B -m unittest -v && cat saved-ok.log'):
+            with self.subTest(command=command):
+                events = test_edit() + run_test(RED) + implementation()
+                events += tool('Bash', {'command': command}, GREEN) + [terminal()]
+                result = self.verify(events)
+                self.assertEqual(result['outcome'], 'INCONCLUSIVE')
+                self.assertIsNone(result['green'])
+
+    def test_failed_process_cannot_supply_green_or_success_supply_red(self):
+        events = good_trace()
+        events[7]['message']['content'][0]['is_error'] = True
+        self.assertEqual(self.verify(events)['outcome'], 'INCONCLUSIVE')
+        events = good_trace()
+        events[3]['message']['content'][0]['is_error'] = False
+        self.assertNotEqual(self.verify(events)['outcome'], 'PASS')
 
     def test_refactor_claim_is_separate_from_observed_execution(self):
         events = good_trace()
