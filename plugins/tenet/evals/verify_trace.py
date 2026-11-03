@@ -93,7 +93,7 @@ def proven_readonly_balance_probe(command, production, output, is_error):
         lexer.whitespace_split = True
         argv = list(lexer)
         if (len(argv) != 4 or
-                not re.fullmatch(r'python(?:\\d+(?:\\.\\d+)*)?', PurePosixPath(argv[0]).name) or
+                not re.fullmatch(r'python(?:\d+(?:\.\d+)*)?', PurePosixPath(argv[0]).name) or
                 argv[1:] != ['-B', '-c', 'import account; print(account.Account(5).balance)']):
             return False
         tree = ast.parse(production)
@@ -118,7 +118,7 @@ def proven_readonly_balance_probe(command, production, output, is_error):
             return False
         methods[node.name] = node
     expected = ast.parse(
-        'class Account:\\n    def __init__(self, balance):\\n        self.balance = balance\\n'
+        'class Account:\n    def __init__(self, balance):\n        self.balance = balance\n'
     ).body[0].body[0]
     return '__init__' in methods and ast.dump(methods['__init__']) == ast.dump(expected)
 
