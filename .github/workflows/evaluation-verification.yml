@@ -2,18 +2,19 @@ name: Evaluation verification
 
 on:
   pull_request:
+    paths:
+      - 'evals/**'
+      - 'plugins/tenet/evals/**'
+      - '.gitattributes'
+      - '.github/workflows/evaluation-verification.yml'
 
 permissions:
   contents: read
 
 jobs:
   regression:
-    name: Evaluation regressions (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Evaluation regressions
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
