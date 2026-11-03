@@ -103,7 +103,10 @@ changing behavior, verify again, and describe any limits of the evidence.
 4. Check dependency direction, misplaced responsibilities, inappropriate shared state,
    unnecessary abstractions, and meaningful duplication only where relevant.
 5. Verify suspected defects with existing tests, a trace, or a check that writes nothing into
-   the repository. Do not add test files during review or run destructive commands.
+   the repository. Account for generated artifacts such as Python bytecode caches (use `-B`
+   when appropriate). Before claiming no files were changed, check the worktree for changes,
+   including untracked files, when version control is available. Do not add test files during
+   review or run destructive commands.
 6. Report confirmed defects separately from design suggestions and unresolved questions.
    For each defect, provide its location, triggering condition, consequence, and evidence.
    If no supported defects are found, state that along with relevant review limitations.
