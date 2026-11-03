@@ -82,6 +82,10 @@ changes to source files.
 - [Engineering principles](docs/principles.md)
 - [Evaluation and verification](docs/evaluation.md)
 
+The native Claude Code evaluation cases remain in `plugins/tenet/evals/`.
+Standalone verification and regression tests live in the repository-root `evals/`
+directory, outside the installed plugin. Preserve local run artifacts outside Git.
+
 The initial evaluation suite includes three cases covering development and review.
 The presence of evaluation definitions alone does not establish that the skill behaves
 correctly; see the evaluation documentation for execution and verification procedures.
