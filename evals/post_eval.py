@@ -227,12 +227,19 @@ for check in checks:
             output = proc.stdout + proc.stderr
             if proc.returncode == 0:
                 return result(PASS, 'independent fixture/behavior verification passed', output=output)
+            lines = proc.stdout.splitlines()
+            failed_contract = any(
+                line.startswith('Ran 4 tests in ') and line.endswith('s') and
+                index + 2 < len(lines) and lines[index + 1] == '' and
+                re.fullmatch(
+                    'FAILED [(](?:failures|errors)=[0-9]+'
+                    '(?:, (?:failures|errors)=[0-9]+)*[)]',
+                    lines[index + 2])
+                for index, line in enumerate(lines))
             if ((case.startswith('review-') and
                  proc.stdout.startswith('FAIL: review changed workspace')) or
-                (case == 'develop-withdrawal' and re.search(
-                    r'(?m)^Ran 4 tests in [0-9.]+s\r?\n\r?\n'
-                    r'FAILED \((?:failures|errors)=[1-9][0-9]*'
-                    r'(?:, (?:failures|errors)=[0-9]+)*\)\r?
+                (case == 'develop-withdrawal' and failed_contract)):
+                return result(FAIL, 'independent verification failed', output=output)
             return result(INCONCLUSIVE, 'verifier could not complete', exit=proc.returncode, output=output)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         return result(INCONCLUSIVE, 'workspace inaccessible, unsupported, or verifier unavailable', error=str(error))
