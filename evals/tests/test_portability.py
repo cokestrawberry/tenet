@@ -145,5 +145,28 @@ class PortabilityTests(unittest.TestCase):
             self.assertEqual(verdict['outcome'], 'INCONCLUSIVE', verdict)
 
 
+    def test_development_requires_completed_unittest_failure_summary(self):
+        scenarios = [
+            ('', 'Traceback (most recent call last): RuntimeError: FAILED (setup unavailable)',
+             'INCONCLUSIVE'),
+            ('Traceback: FAILED (errors=1)', '', 'INCONCLUSIVE'),
+            ('Ran 4 tests in 0.001s', 'FAILED (errors=1)', 'INCONCLUSIVE'),
+            ('Ran 4 tests in 0.001s\n\nFAILED (errors=1)\n', '', 'FAIL'),
+            ('Ran 4 tests in 0.001s\n\nFAILED (failures=1, errors=2)\n', '', 'FAIL'),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / 'account.py').write_text('class Account: pass', encoding='utf-8')
+            (workspace / 'test_account.py').write_text('', encoding='utf-8')
+            for stdout, stderr, expected in scenarios:
+                with self.subTest(stdout=stdout, stderr=stderr):
+                    self_check = subprocess.CompletedProcess([], 0, '', '')
+                    verification = subprocess.CompletedProcess([], 1, stdout, stderr)
+                    with patch.object(post_eval, 'isolated',
+                                      side_effect=[self_check, verification]):
+                        result = post_eval.independent('develop-withdrawal', workspace)
+                    self.assertEqual(result['outcome'], expected, result)
+
+
 if __name__ == '__main__':
     unittest.main()
