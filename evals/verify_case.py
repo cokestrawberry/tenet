@@ -36,6 +36,7 @@ def fixture_files(fixture):
 
 
 def main():
+    sys.stdout.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser()
     parser.add_argument("case", choices=sorted(CASES))
     parser.add_argument("workspace", type=pathlib.Path)
@@ -113,10 +114,11 @@ if __name__ == "__main__":
             encoding='utf-8',
         )
         result = subprocess.run(
-            [sys.executable, "-B", "-I", str(script)],
+            [sys.executable, "-B", "-I", "-X", "utf8", str(script)],
             cwd=expected,
             capture_output=True,
             text=True,
+            encoding='utf-8',
             timeout=20,
         )
         print(result.stdout + result.stderr)
