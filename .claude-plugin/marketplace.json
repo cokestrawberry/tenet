@@ -1,0 +1,14 @@
+{
+  "name": "tenet",
+  "description": "Engineering principles for building and reviewing software",
+  "owner": {
+    "name": "cokestrawberry"
+  },
+  "plugins": [
+    {
+      "name": "tenet",
+      "source": "./plugins/tenet",
+      "description": "Apply software engineering principles to development and review"
+    }
+  ]
+}
