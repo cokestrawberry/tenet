@@ -373,7 +373,7 @@ class WorkflowTests(unittest.TestCase):
             argv = ['post_eval.py', '--aggregate', str(aggregate), '--output', str(root / 'output')]
             with patch.object(sys, 'argv', argv):
                 self.assertEqual(post_eval.main(), 2)
-            rows = json.loads((root / 'output/verification.json').read_text())['runs']
+            rows = json.loads((root / 'output/verification.json').read_text(encoding='utf-8'))['runs']
             self.assertEqual([(r['arm'], r['run']) for r in rows], [('with', 1), ('with', 2), ('without', 1)])
 
     def test_probe_mapping_requires_matching_fixture_provenance(self):
