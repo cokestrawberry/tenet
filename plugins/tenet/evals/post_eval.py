@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify every preserved eval run without changing evidence or calling a model."""
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ import sys
 import tempfile
 
 from verify_trace import FAIL, INCONCLUSIVE, PASS, read_trace, verify
+from verify_tests import MUTATIONS
 
 HERE = Path(__file__).resolve().parent
 CASES = {'review-domain-invariant', 'review-no-dogma', 'develop-withdrawal'}
@@ -49,11 +51,13 @@ def resolve_case(case, mappings):
 
 
 def adjudicate(case, automatic_result, independent_result, completion, full_trace=None,
-               consistency=None, refactoring=None):
+               consistency=None, refactoring=None, effectiveness=None):
     """Retain raw grader evidence and only replace judgments with adequate proof."""
     verified = [independent_result, completion]
     if full_trace is not None:
         verified.extend([full_trace, consistency, refactoring])
+    if effectiveness is not None:
+        verified.append(effectiveness)
     if any(item['outcome'] == FAIL for item in verified):
         return result(FAIL, 'independent verification established a failure')
     if any(item['outcome'] == INCONCLUSIVE for item in verified):
@@ -80,6 +84,9 @@ def adjudicate(case, automatic_result, independent_result, completion, full_trac
     if verdicts[0] == PASS and verdicts[1] == FAIL:
         return result(PASS, 'full-trace and independent checks establish test-first behavior',
                       overriddenGrader=names[1])
+    if verdicts[0] == FAIL and effectiveness is not None and effectiveness['outcome'] == PASS:
+        return result(PASS, 'contract, submitted tests, and full-trace checks establish both criteria',
+                      overriddenGraders=[name for name, verdict in zip(names, verdicts) if verdict == FAIL])
     return result(INCONCLUSIVE, 'LLM functional failure conflicts with independent evidence')
 
 
@@ -222,6 +229,86 @@ for check in checks:
         return result(INCONCLUSIVE, 'workspace inaccessible, unsupported, or verifier unavailable', error=str(error))
 
 
+def supported_test_source(source):
+    """Conservatively limit test imports and reflection before sandboxed execution."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return False
+    forbidden = {'exec', 'eval', 'open', '__import__', 'getattr', 'setattr',
+                 'globals', 'locals', 'vars', 'compile', 'breakpoint'}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name not in ('unittest', 'account') for alias in node.names):
+                return False
+        elif isinstance(node, ast.ImportFrom):
+            allowed = {'account': {'Account'}, 'unittest': {'TestCase'}}
+            if node.level or node.module not in allowed or any(
+                    alias.name not in allowed[node.module] for alias in node.names):
+                return False
+        elif isinstance(node, ast.Name) and node.id in forbidden:
+            return False
+        elif isinstance(node, ast.Attribute) and node.attr.startswith('__') and node.attr != '__name__':
+            return False
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name)
+                   and target.value.id in ('unittest', 'Account')
+                   for target in targets):
+                return False
+    return True
+
+
+def test_effectiveness(workspace):
+    """Mutation-check submitted tests using trusted account variants in a restricted subprocess."""
+    try:
+        files = plain_files(workspace)
+        source = files.get('test_account.py')
+        if source is None or not supported_test_source(source):
+            return result(INCONCLUSIVE, 'submitted tests use an unsupported source form')
+        with tempfile.TemporaryDirectory(prefix='tenet-mutation-', dir='/private/tmp' if sys.platform == 'darwin' else None) as tmp:
+            work = Path(tmp)
+            (work / 'tmp').mkdir()
+            runner = work / 'verify_tests.py'
+            shutil.copy2(HERE / 'verify_tests.py', runner)
+            submitted = work / 'test_account.py'
+            submitted.write_bytes(source)
+            observations = {}
+            reference_count = None
+            for variant in MUTATIONS:
+                proc = isolated(work, [sys.executable, '-I', '-B', str(runner), variant, str(submitted)])
+                if proc.returncode != 0:
+                    return result(INCONCLUSIVE, 'mutation runner did not complete', variant=variant,
+                                  exit=proc.returncode, stderr=proc.stderr)
+                try:
+                    observation = json.loads(proc.stdout)
+                    fields = ('tests', 'failures', 'errors', 'skipped',
+                              'expectedFailures', 'unexpectedSuccesses')
+                    if any(type(observation.get(field)) is not int or observation[field] < 0
+                           for field in fields):
+                        raise ValueError('invalid mutation counters')
+                except (ValueError, TypeError):
+                    return result(INCONCLUSIVE, 'uninterpretable mutation results', variant=variant)
+                observations[variant] = observation
+                if variant == 'reference':
+                    reference_count = observation['tests']
+                    if (not reference_count or any(observation[field] for field in fields[1:])):
+                        return result(INCONCLUSIVE, 'submitted tests do not pass the reference implementation',
+                                      observations=observations)
+                elif (observation['tests'] != reference_count or observation['errors'] or
+                      observation['skipped'] or observation['expectedFailures'] or
+                      observation['unexpectedSuccesses']):
+                    return result(INCONCLUSIVE, 'mutation run is not comparable', observations=observations)
+            survived = [name for name, observation in observations.items()
+                        if name != 'reference' and observation['failures'] == 0]
+            return result(FAIL if survived else PASS,
+                          'submitted tests miss required faulty behavior' if survived
+                          else 'submitted tests detect every targeted contract mutation',
+                          survived=survived, observations=observations)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+        return result(INCONCLUSIVE, 'mutation verifier unavailable or evidence inaccessible', error=str(error))
+
+
 def process_run(run, case, arm, number, roots, mappings=None):
     if not isinstance(run, dict):
         return {'case': case, 'arm': arm, 'run': number, 'outcome': INCONCLUSIVE,
@@ -253,18 +340,24 @@ def process_run(run, case, arm, number, roots, mappings=None):
                           if hashlib.sha256((workspace / name).read_bytes()).hexdigest() != digest]
             row['replayConsistency'] = result(INCONCLUSIVE if mismatches else PASS,
                                              'replayed files compared with preserved workspace', mismatches=mismatches)
+            if all(row[name]['outcome'] == PASS for name in
+                   ('independent', 'completion', 'fullTrace', 'replayConsistency')):
+                row['testEffectiveness'] = test_effectiveness(workspace)
+            else:
+                row['testEffectiveness'] = result(INCONCLUSIVE, 'required trace or behavior evidence incomplete')
             row['adjudication'] = adjudicate(
                 verified_case, row['automatic'], row['independent'], row['completion'],
                 row['fullTrace'], row['replayConsistency'],
-                {'outcome': row['fullTrace']['refactoringDecision']['status']})
+                {'outcome': row['fullTrace']['refactoringDecision']['status']},
+                row['testEffectiveness'])
         else:
             row['adjudication'] = adjudicate(
                 verified_case, row['automatic'], row['independent'], row['completion'])
         row['outcome'] = row['adjudication']['outcome']
     except (OSError, ValueError, KeyError, IndexError, TypeError, SyntaxError) as error:
         row['evidenceError'] = result(INCONCLUSIVE, 'missing, restricted, or malformed evidence', error=str(error))
-        checks = [row[key] for key in ('independent', 'completion', 'fullTrace', 'replayConsistency')
-                  if key in row]
+        checks = [row[key] for key in ('independent', 'completion', 'fullTrace', 'replayConsistency',
+                                      'testEffectiveness') if key in row]
         row['outcome'] = FAIL if any(c['outcome'] == FAIL for c in checks) else INCONCLUSIVE
     return row
 
