@@ -27,4 +27,5 @@ The definitive principles are not yet established. Do not claim that this skill 
 
 ## Status
 
-This is an initial scaffold. The principles and their verification criteria will be developed after examining ub-mode and its companion tools.
+This is an initial scaffold. The principles and verification criteria will be developed after
+examining ub-mode and its companion tools.
